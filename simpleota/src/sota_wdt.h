@@ -24,11 +24,13 @@ static inline uint32_t sota_wdt_margin_sec(uint32_t confirm_sec, uint32_t floor_
 /**
  * Slow-clock ticks for a duration. cal_q13_19 is the cached calibration
  * (microseconds per tick, Q13.19). Returns 0 when cal is 0 so the caller
- * can fall back to the nominal frequency.
+ * can fall back to the nominal frequency, and saturates instead of
+ * overflowing.
  */
 static inline uint64_t sota_slowclk_ticks(uint64_t timeout_us, uint32_t cal_q13_19)
 {
     if (cal_q13_19 == 0) return 0;
+    if (timeout_us > (UINT64_MAX >> 19)) return UINT64_MAX;
     return (timeout_us << 19) / (uint64_t)cal_q13_19;
 }
 
@@ -61,13 +63,22 @@ static inline const char *sota_rollback_cause(bool image_invalid, int reset_code
 }
 
 /**
- * Arm the RTC/LP watchdog for confirm_sec plus the margin.
- * Returns true when the hardware is running. Returns false when the
- * watchdog is opted out or this target has no wdt_hal.
+ * Arm the RTC/LP watchdog for confirm_sec plus the margin, and stop it
+ * again before deep sleep. Logs a warning when the deadline is longer
+ * than the watchdog can wait. Returns true when the hardware is running.
+ * Returns false when the watchdog is opted out or this target has no
+ * wdt_hal.
  */
 bool sota_wdt_arm(uint32_t confirm_sec);
 
 /** Disable the watchdog if this component armed it. */
 void sota_wdt_disarm(void);
+
+/**
+ * Stop a watchdog left running across a reset, on a build where the
+ * bootloader does not reprogram it (CONFIG_BOOTLOADER_WDT_ENABLE off).
+ * Does nothing otherwise.
+ */
+void sota_wdt_quiesce(void);
 
 #endif /* SOTA_WDT_H */

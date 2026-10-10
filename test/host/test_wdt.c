@@ -34,6 +34,8 @@ int main(void)
     check(ticks > 53000000ull && ticks < 55000000ull,
           "360 s at a 150 kHz calibration is about 54e6 ticks");
     check(sota_slowclk_ticks(us, 0) == 0, "a zero calibration asks for the nominal fallback");
+    check(sota_slowclk_ticks(UINT64_MAX / 2, cal) == UINT64_MAX,
+          "a huge duration saturates instead of wrapping");
     check(sota_nominal_slow_ticks(360, 150000) == 54000000u, "nominal 360 s at 150 kHz");
     check(sota_nominal_slow_ticks(100000, 150000) == 0xFFFFFFFFu,
           "a deadline past the 32-bit stage clamps");

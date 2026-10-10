@@ -22,6 +22,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Every published target, from the IDF floor (5.1) to latest, on
+          # Xtensa and RISC-V. wdt: require checks that the trial watchdog
+          # links wdt_hal_init; absent checks the Kconfig opt-out drops it.
           - { idf: "v5.1.4", target: esp32, example: basic, wdt: require }
           - { idf: "v5.1.4", target: esp32, example: signed, wdt: require }
           - { idf: "v5.1.4", target: esp32c3, example: basic, wdt: require }
@@ -36,6 +39,10 @@ jobs:
           - { idf: "latest", target: esp32c3, example: signed, wdt: require }
           - { idf: "latest", target: esp32h2, example: compile_check, wdt: require }
     steps:
+      # The examples resolve the in-repo component via override_path pointing
+      # at the simpleota/ subdirectory, whose name matches the component name
+      # (the component manager resolves local dependencies by directory
+      # basename), so no special checkout path is needed.
       - uses: actions/checkout@v4
       - name: Build example
         uses: espressif/esp-idf-ci-action@v1

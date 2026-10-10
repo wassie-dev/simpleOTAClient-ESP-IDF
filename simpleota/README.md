@@ -52,13 +52,17 @@ idf.py add-dependency "xanderwasserman/simpleota"
 
 void app_main(void) {
     // nvs_flash_init() first. Call simpleota_init() before other bring-up
-    // so a trial arms the chip watchdog immediately. Wi-Fi can follow;
-    // the task waits on is_connected.
+    // so a trial arms the chip watchdog immediately.
 
     simpleota_config_t cfg = {
         .token = "YOUR_PROJECT_TOKEN",   // Project -> API tokens (device scope)
     };
     ESP_ERROR_CHECK(simpleota_init(&cfg));
+
+    // Your network bring-up (esp_netif_init(), Wi-Fi, ...) goes here,
+    // before simpleota_start(). To start the task earlier, set
+    // .is_connected so it waits for the network.
+
     ESP_ERROR_CHECK(simpleota_start());
 }
 ```
@@ -138,12 +142,18 @@ bootloader then switches back, and the next boot reports `rolled_back`
 with reason `watchdog`. `simpleota_confirm()`, and the automatic confirm
 on the first successful check-in, both disable that watchdog. The
 component's own timeout rollback disables it before the reboot, so that
-reboot stays `confirm_timeout`. A boot that is not a pending SimpleOTA
-trial does not touch the watchdog, and neither does a plain image.
+reboot stays `confirm_timeout`. If the image cannot be marked invalid,
+the component restarts, and the bootloader abandons the still-pending
+image. If `simpleota_confirm()` cannot mark the image valid, the trial
+continues with its timer and watchdog. A boot that is not a pending
+SimpleOTA trial leaves the watchdog alone, except on a build with
+`CONFIG_BOOTLOADER_WDT_ENABLE` off: there nothing else reprograms the
+watchdog after a reset, so `simpleota_init()` stops one left running.
 
 Call `simpleota_init()` as soon as NVS is ready. That is when the watchdog
 starts. The examples do this before Wi-Fi, then call `simpleota_start()`
-so the confirm timer has a task to run on while the network comes up.
+with `is_connected` set, so the confirm timer has a task to run on while
+the network comes up.
 `CONFIG_SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` skips the watchdog and leaves
 the confirm timer in place. If a target's build has no `hal/wdt_hal.h`,
 the component skips the arm and logs that a hang during the trial is not
@@ -153,10 +163,14 @@ rollback is enabled.
 At the usual internal slow clock the stage can wait at most about 8 hours
 on the original ESP32, about 9 hours on the S3, C3, C6, and H2, and about
 13 hours on the S2. A longer `confirm_timeout_s` still sets the confirm
-timer to the time you asked for, and the chip watchdog fires at its
-maximum. Light sleep pauses this watchdog, because `wdt_hal_init` enables
-pause-in-sleep. Deep sleep does not pause it, so a trial that enters deep
-sleep can still be reset when the deadline passes.
+timer to the time you asked for, the chip watchdog fires at its maximum,
+and the component logs a warning when it arms the watchdog. Light sleep
+pauses this watchdog, because `wdt_hal_init` enables pause-in-sleep. The
+component stops the watchdog just before deep sleep, and
+`simpleota_init()` arms it again on wake while the image is still on
+trial. Without `CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP`, the
+bootloader treats a deep-sleep wake like any other boot and can switch
+back from an unconfirmed image, so confirm before deep sleep.
 
 | Chip | Peripheral | What this component calls |
 |---|---|---|
@@ -183,6 +197,8 @@ Confirmation is automatic on the first successful check-in. If your
 application has its own health checks, set `.manual_confirm = true` and call
 `simpleota_confirm()` once they pass. During a trial this component is using
 the chip watchdog, so start your own use of that watchdog after confirm.
+With `CONFIG_BOOTLOADER_WDT_ENABLE` off, start it after `simpleota_init()`
+on every boot.
 
 ## Signed firmware
 

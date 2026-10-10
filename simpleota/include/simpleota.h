@@ -153,9 +153,10 @@ esp_err_t simpleota_check_now(void);
 
 /**
  * Confirm the currently running trial image (manual_confirm mode, called
- * after the app's own health checks pass). Disables the chip watchdog,
- * marks the image valid, and cancels the confirm timer. No-op when not
- * in a trial boot.
+ * after the app's own health checks pass). Marks the image valid, then
+ * disables the chip watchdog and cancels the confirm timer. If the image
+ * cannot be marked valid, the trial continues. No-op when not in a trial
+ * boot.
  */
 esp_err_t simpleota_confirm(void);
 

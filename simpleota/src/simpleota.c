@@ -387,15 +387,26 @@ static void stop_confirm_timer(void) {
 static void do_confirm(void) {
     if (!s.in_trial) return;
     s.in_trial = false; /* first: disarms a racing timeout callback */
-    sota_wdt_disarm();
 
 #if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
-    /* Local operation; cannot fail on network. Seals the bootloader state. */
+    /* Local operation; cannot fail on network. Seals the bootloader state.
+     * If it fails, the trial goes on: the record, the confirm timer, and
+     * the chip watchdog stay in place. */
     esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "mark_app_valid failed: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "mark_app_valid failed: %s; trial continues",
+                 esp_err_to_name(err));
+        s.in_trial = true;
+        /* A timeout that fired while in_trial was false was skipped by the
+         * task. Hand it back so the rollback still runs. */
+        if (s.confirm_timer && !esp_timer_is_active(s.confirm_timer)) {
+            s.confirm_timeout_fired = true;
+            if (s.task) xTaskNotifyGive(s.task);
+        }
+        return;
     }
 #endif
+    sota_wdt_disarm();
     stop_confirm_timer();
     sota_nvs_clear_trial();
     s.nvs.trial = 0;
@@ -426,12 +437,12 @@ static void do_rollback_from_timeout(void) {
     /* Marks the running app INVALID in otadata and reboots into the last
      * bootable image. Returns only on error. */
     esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();
-    ESP_LOGE(TAG, "rollback reboot failed: %s (staying up)",
+    ESP_LOGE(TAG, "rollback reboot failed: %s; restarting",
              esp_err_to_name(err));
-#else
-    /* Should be unreachable: the timer is only armed with rollback support. */
-    esp_restart();
 #endif
+    /* An image still pending verification is abandoned by the bootloader
+     * on this restart, which boots the previous one. */
+    esp_restart();
 }
 
 #if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
@@ -476,6 +487,10 @@ static const esp_partition_t *find_app_partition_by_addr(uint32_t addr) {
 
 static void process_boot_validation(void) {
     const esp_partition_t *running = esp_ota_get_running_partition();
+
+    /* Stop a trial watchdog left running by a reset the bootloader did not
+     * reprogram. A trial boot arms it again below. */
+    sota_wdt_quiesce();
 
     if (s.nvs.trial == 1) {
         if (running && running->address == s.nvs.new_part) {

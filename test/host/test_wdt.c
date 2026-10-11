@@ -34,8 +34,15 @@ int main(void)
     check(ticks > 53000000ull && ticks < 55000000ull,
           "360 s at a 150 kHz calibration is about 54e6 ticks");
     check(sota_slowclk_ticks(us, 0) == 0, "a zero calibration asks for the nominal fallback");
-    check(sota_slowclk_ticks(UINT64_MAX / 2, cal) == UINT64_MAX,
-          "a huge duration saturates instead of wrapping");
+    /* The shift guard is timeout_us > (UINT64_MAX >> 19). Just under it
+     * still takes the multiply path; one past it saturates. */
+    const uint64_t shift_limit = UINT64_MAX >> 19;
+    const uint64_t just_under = sota_slowclk_ticks(shift_limit, cal);
+    const uint64_t just_under_expect = (shift_limit << 19) / (uint64_t)cal;
+    check(just_under == just_under_expect && just_under != UINT64_MAX,
+          "a duration just under the shift limit is computed");
+    check(sota_slowclk_ticks(shift_limit + 1, cal) == UINT64_MAX,
+          "one past the shift limit saturates");
     check(sota_nominal_slow_ticks(360, 150000) == 54000000u, "nominal 360 s at 150 kHz");
     check(sota_nominal_slow_ticks(100000, 150000) == 0xFFFFFFFFu,
           "a deadline past the 32-bit stage clamps");
@@ -47,6 +54,14 @@ int main(void)
           "a chip watchdog reset is reason watchdog");
     check(strcmp(sota_rollback_cause(false, 4), "boot_failed") == 0,
           "any other abandon stays boot_failed");
+    check(strcmp(sota_rollback_cause(false, 5), "boot_failed") == 0,
+          "an interrupt watchdog reset (code 5) stays boot_failed");
+    check(strcmp(sota_rollback_cause(false, 6), "boot_failed") == 0,
+          "a task watchdog reset (code 6) stays boot_failed");
+    check(strcmp(sota_rollback_cause(true, 5), "confirm_timeout") == 0,
+          "code 5 does not override an image this component invalidated");
+    check(strcmp(sota_rollback_cause(true, 6), "confirm_timeout") == 0,
+          "code 6 does not override an image this component invalidated");
 
     if (g_failures) {
         printf("%d FAILURE(S)\n", g_failures);

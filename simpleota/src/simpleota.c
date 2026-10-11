@@ -39,11 +39,19 @@
 #include "esp_crt_bundle.h"
 #endif
 
+#include "sota_guard.h"
 #include "sota_json.h"
 #include "sota_nvs.h"
 #include "sota_sha256.h"
 #include "sota_signing.h"
 #include "sota_wdt.h"
+
+_Static_assert(SOTA_IMG_NEW == (uint32_t)ESP_OTA_IMG_NEW, "IMG_NEW");
+_Static_assert(SOTA_IMG_PENDING_VERIFY == (uint32_t)ESP_OTA_IMG_PENDING_VERIFY,
+               "IMG_PENDING_VERIFY");
+_Static_assert(SOTA_IMG_VALID == (uint32_t)ESP_OTA_IMG_VALID, "IMG_VALID");
+_Static_assert(SOTA_IMG_INVALID == (uint32_t)ESP_OTA_IMG_INVALID, "IMG_INVALID");
+_Static_assert(SOTA_IMG_ABORTED == (uint32_t)ESP_OTA_IMG_ABORTED, "IMG_ABORTED");
 
 static const char *TAG = "simpleota";
 
@@ -485,12 +493,53 @@ static const esp_partition_t *find_app_partition_by_addr(uint32_t addr) {
 }
 #endif
 
+/* Running image is PENDING_VERIFY but this boot is not a SimpleOTA trial
+ * (trial byte still 0). Nothing will confirm it. Roll it back so it is
+ * not left unconfirmed. Does not return when the rollback reboot starts. */
+static void rollback_unsupervised_pending(void) {
+#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    if (s.nvs.trial != 0) return;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    if (!running || esp_ota_get_state_partition(running, &state) != ESP_OK ||
+        state != ESP_OTA_IMG_PENDING_VERIFY) {
+        return;
+    }
+    ESP_LOGE(TAG, "unconfirmed image with no SimpleOTA trial; rolling it back");
+    esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();
+    ESP_LOGE(TAG, "rollback of unsupervised image failed: %s",
+             esp_err_to_name(err));
+#endif
+}
+
+/* trial==1 but this boot is still the previous app. otadata tells a
+ * not-yet-rebooted image (deinit/init, or a deep-sleep wake that resumed
+ * this app) from a rollback. */
+static bool image_waiting_for_reboot(void) {
+    const esp_partition_t *boot = esp_ota_get_boot_partition();
+    bool boot_is_new = boot && s.nvs.new_part != 0 &&
+                       boot->address == s.nvs.new_part;
+#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    const esp_partition_t *new_part = find_app_partition_by_addr(s.nvs.new_part);
+    esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
+    if (!new_part || esp_ota_get_state_partition(new_part, &st) != ESP_OK) {
+        /* The state byte exists on this build. A failed read is not
+         * "still NEW"; treat it as a rollback. */
+        return false;
+    }
+    return sota_waiting_for_reboot(boot_is_new, true, (uint32_t)st);
+#else
+    return sota_waiting_for_reboot(boot_is_new, false, 0);
+#endif
+}
+
 static void process_boot_validation(void) {
     const esp_partition_t *running = esp_ota_get_running_partition();
 
     /* Stop a trial watchdog left running by a reset the bootloader did not
      * reprogram. A trial boot arms it again below. */
     sota_wdt_quiesce();
+    rollback_unsupervised_pending();
 
     if (s.nvs.trial == 1) {
         if (running && running->address == s.nvs.new_part) {
@@ -531,6 +580,13 @@ static void process_boot_validation(void) {
             sota_nvs_clear_trial();
             s.nvs.trial = 0;
 #endif
+        } else if (image_waiting_for_reboot()) {
+            /* Flashed, not booted. Keep the trial record and the slot
+             * guard. The task emits BEFORE_REBOOT and, unless the app
+             * asked to defer it, reboots. */
+            s.pending_reboot = true;
+            ESP_LOGI(TAG, "build %" PRIu32 " is flashed and waiting for reboot",
+                     s.nvs.build);
         } else {
             bool image_invalid = false;
 #if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
@@ -716,7 +772,6 @@ static bool do_check(void) {
     got_offer = true;
     ESP_LOGI(TAG, "check: offer build=%" PRIu32 " version=%s size=%" PRIu32,
              build, s.offer.version[0] ? s.offer.version : "?", s.offer.size);
-    emit_event(SIMPLEOTA_EVENT_UPDATE_AVAILABLE, NULL, build, 0, s.offer.size);
     return got_offer;
 }
 
@@ -805,40 +860,74 @@ static esp_http_client_handle_t open_download(int64_t *content_length,
     }
 }
 
-/* True while the running image is still pending bootloader verification. */
-static bool running_image_pending(void) {
-#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
-    const esp_partition_t *running = esp_ota_get_running_partition();
-    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
-    return running &&
-           esp_ota_get_state_partition(running, &state) == ESP_OK &&
-           state == ESP_OTA_IMG_PENDING_VERIFY;
-#else
-    return false;
-#endif
+/* No status post: the server was not told a download is starting. */
+static void skip_guarded_offer(sota_apply_decision_t decision) {
+    const char *reason = sota_apply_skip_reason(decision);
+    ESP_LOGI(TAG, "not downloading build %" PRIu32 " (%s)", s.offer.build_number,
+             reason ? reason : "?");
+    clear_offer();
+    emit_event(SIMPLEOTA_EVENT_CHECK_DONE, reason, s.nvs.build, 0, 0);
+}
+
+/* set_boot_partition() already selected dst and the trial record did not
+ * commit. Do not boot that image: nothing would confirm it or roll it
+ * back. Does not return when the invalidation reboot starts. */
+static void abandon_unarmed_image(const esp_partition_t *running,
+                                  const esp_partition_t *dst) {
+    finish_failed("update_end_failed");
+
+    /* The active otadata entry is dst (state NEW, or UNDEFINED when
+     * rollback is off), not the app still running. Marking it invalid
+     * reboots into the previous app. */
+    esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();
+    ESP_LOGE(TAG, "unarmed image was not invalidated: %s", esp_err_to_name(err));
+
+    if (dst && running && dst->address != running->address) {
+        esp_err_t erase_err = esp_partition_erase_range(dst, 0, dst->size);
+        if (erase_err != ESP_OK) {
+            ESP_LOGE(TAG, "could not erase the unarmed image: %s",
+                     esp_err_to_name(erase_err));
+        }
+    }
+    if (!running) return;
+    err = esp_ota_set_boot_partition(running);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "could not restore the boot partition: %s",
+                 esp_err_to_name(err));
+        return;
+    }
+    /* Restoring the selection writes ESP_OTA_IMG_NEW when rollback is on.
+     * Confirm this already-running app so the next reset is not a trial. */
+    err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err != ESP_OK && err != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGE(TAG, "restored boot partition is still unconfirmed: %s",
+                 esp_err_to_name(err));
+    }
 }
 
 static void do_apply(void) {
     if (!s.offer.has) return;
 
-    /* ---- Slot guard ---------------------------------------------------- *
-     * The next update slot counts from the running image. While a flashed
-     * update waits for simpleota_reboot_for_update(), that slot holds it;
-     * while the running image is unconfirmed, the bootloader refuses the
-     * write. Either way, do not download. The offer is not a failure and
-     * is fetched again on the next check. */
-    if (s.pending_reboot) {
-        ESP_LOGI(TAG, "update waiting for reboot; not downloading build %" PRIu32,
-                 s.offer.build_number);
-        clear_offer();
+    /* The next update slot is the one after the running image. While a
+     * flashed update waits for reboot, that slot holds it and a download
+     * would erase it. A supervised trial also waits. An unconfirmed image
+     * this component is not supervising is not skipped: esp_ota_begin
+     * rejects PENDING_VERIFY before the erase, and that failure is
+     * reported. A rolled_back report the server has not accepted also
+     * waits, because arming the next trial would overwrite it. Nothing is
+     * posted for these skips. The check-in already reports the flashed
+     * build, so that build is not offered again. A newer build is offered
+     * on later checks and dropped until the running image is confirmed,
+     * or until the rolled_back report is accepted. */
+    sota_apply_decision_t decision =
+        sota_apply_decision(s.pending_reboot, s.in_trial, s.nvs.trial);
+    if (decision != SOTA_APPLY_DOWNLOAD) {
+        skip_guarded_offer(decision);
         return;
     }
-    if (running_image_pending()) {
-        ESP_LOGI(TAG, "running image not confirmed; not downloading build %" PRIu32,
-                 s.offer.build_number);
-        clear_offer();
-        return;
-    }
+
+    emit_event(SIMPLEOTA_EVENT_UPDATE_AVAILABLE, NULL, s.offer.build_number, 0,
+               s.offer.size);
 
     /* ---- Transport guard first (Arduino ordering: a non-HTTPS URL is
      * insecure_url regardless of what the signed gate would say) ---------- */
@@ -1074,6 +1163,9 @@ static void do_apply(void) {
         s.nvs.hash, s.nvs.version, s.offer.deployment_id);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to persist OTA state: %s", esp_err_to_name(err));
+        /* Do not mirror the new image into RAM and do not boot it. */
+        abandon_unarmed_image(running, dst);
+        return;
     }
 
     /* Mirror the armed state into RAM. Without this, the deferred-reboot
@@ -1120,6 +1212,18 @@ static void do_apply(void) {
 
 static void sota_task(void *arg) {
     (void)arg;
+
+    /* A flashed image discovered at init (deinit/init, or a deep-sleep
+     * wake that resumed this app) still needs its reboot. The event stays
+     * on this task. */
+    if (s.pending_reboot && !s.in_trial) {
+        emit_event(SIMPLEOTA_EVENT_BEFORE_REBOOT, NULL, s.nvs.build, 0, 0);
+        if (!s.disable_auto_reboot) {
+            post_status_for("reboot", NULL, s.nvs.fail_dep, s.nvs.fail_build);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            esp_restart();
+        }
+    }
 
     /* An overdue confirm-timeout (fired between init and start, when
      * there was no task to notify) outranks the polite initial delay. */

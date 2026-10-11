@@ -53,7 +53,9 @@ static inline uint32_t sota_nominal_slow_ticks(uint64_t seconds, uint32_t hz)
  *
  * image_invalid is true when the new slot is in the INVALID state, which
  * only the component's confirm-timeout path sets: "confirm_timeout".
- * A chip-watchdog reset: "watchdog". Anything else: "boot_failed".
+ * A chip-watchdog reset (ESP_RST_WDT, code 7): "watchdog". Interrupt and
+ * task watchdog resets (ESP_RST_INT_WDT code 5, ESP_RST_TASK_WDT code 6)
+ * stay "boot_failed", as does any other abandon.
  */
 static inline const char *sota_rollback_cause(bool image_invalid, int reset_code)
 {

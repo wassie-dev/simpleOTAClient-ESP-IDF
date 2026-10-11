@@ -190,12 +190,40 @@ to the previous working build, reported in the dashboard as `rolled_back`
 what the different rollback reasons mean).
 
 To test the trial watchdog, make the new build hang instead of crash.
-After `simpleota_start()`, create one task per core at priority
-`configMAX_PRIORITIES - 1` that spins forever. That starves the confirm
-timer and the SimpleOTA task without tripping the interrupt watchdog.
-After the confirm timeout plus its margin (360 s with the defaults), the
-chip watchdog resets the board, the bootloader reverts it, and the
-dashboard shows `rolled_back` / `watchdog`.
+Turn the task watchdog off for this test. In menuconfig, disable
+`Component config → ESP System Settings → Enable Task Watchdog Timer`
+(`CONFIG_ESP_TASK_WDT_EN`). The examples leave it on, with a 30 s
+timeout. A spinner that starves the idle task trips that watchdog, and
+if panic-on-timeout is enabled the reset reason is the task watchdog
+(`ESP_RST_TASK_WDT`), which this component reports as `boot_failed`
+rather than `watchdog`. Leave the interrupt watchdog on.
+
+After `simpleota_start()`, pin one spinner to each core at priority
+`configMAX_PRIORITIES - 1`. Call `start_hang_spinners()` once the
+SimpleOTA task is running:
+
+```c
+static void hang_forever(void *arg)
+{
+    (void)arg;
+    for (;;) {
+    }
+}
+
+static void start_hang_spinners(void)
+{
+    for (int core = 0; core < portNUM_PROCESSORS; core++) {
+        xTaskCreatePinnedToCore(hang_forever, "hang", 2048, NULL,
+                                configMAX_PRIORITIES - 1, NULL, core);
+    }
+}
+```
+
+On a single-core chip, that starts one task. That priority sits above
+the `esp_timer` task, so the confirm timer stops, and the spinner does
+not trip the interrupt watchdog. After the confirm timeout plus its
+margin (360 s with the defaults), the chip watchdog resets the board, the
+bootloader reverts it, and the dashboard shows `rolled_back` / `watchdog`.
 
 ## Getting back to Arduino
 

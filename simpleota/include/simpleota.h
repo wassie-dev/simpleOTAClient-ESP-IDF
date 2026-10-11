@@ -57,8 +57,13 @@ extern "C" {
 
 /** Events delivered to the config's event_cb (from the component task). */
 typedef enum {
-    SIMPLEOTA_EVENT_CHECK_DONE,        /**< A check completed; no update pending. */
-    SIMPLEOTA_EVENT_UPDATE_AVAILABLE,  /**< An update was offered; download starts next. */
+    SIMPLEOTA_EVENT_CHECK_DONE,        /**< A check finished and no download is
+                                            starting. reason is the server status,
+                                            a skip token (waiting_for_reboot,
+                                            trial_in_progress, or
+                                            rolled_back_pending), or NULL. */
+    SIMPLEOTA_EVENT_UPDATE_AVAILABLE,  /**< The offered update will be downloaded.
+                                            Not emitted when a guard skips it. */
     SIMPLEOTA_EVENT_DOWNLOAD_PROGRESS, /**< bytes_done / bytes_total advanced. */
     SIMPLEOTA_EVENT_UPDATE_FAILED,     /**< Update aborted; reason carries the token. */
     SIMPLEOTA_EVENT_BEFORE_REBOOT,     /**< Flashed + verified. Restart is imminent,
@@ -129,7 +134,9 @@ typedef struct {
  * Initialize the component: copy config, apply defaults, parse and pin
  * signing keys, load persisted state, and run boot-time trial validation.
  * On a pending trial this arms the confirm timer and the chip RTC/LP
- * watchdog (confirm timeout plus a margin).
+ * watchdog (confirm timeout plus a margin). With bootloader rollback
+ * on, a running image left PENDING_VERIFY and no SimpleOTA trial is
+ * rolled back from this call.
  *
  * Call AFTER nvs_flash_init(), and before other bring-up when you can:
  * the chip watchdog starts in this call. Returns ESP_ERR_INVALID_ARG for

@@ -92,7 +92,7 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | `initial_delay_ms` | 0 | Delay before the first check after `simpleota_start()` |
 | `confirm_timeout_s` | 300 | Trial window before automatic rollback |
 | `manual_confirm` | false | true: you call `simpleota_confirm()` after health checks |
-| `disable_auto_reboot` | false | true: you call `simpleota_reboot_for_update()`. No further update is downloaded until then. |
+| `disable_auto_reboot` | false | true: you call `simpleota_reboot_for_update()`. No further update is downloaded until then. A supervised trial, and a `rolled_back` report the server has not accepted, also wait. |
 | `signing_keys`, `num_signing_keys` | none | Up to 2 pinned Ed25519 public keys (PEM) |
 | `is_connected` | always try | Return false to postpone network activity |
 | `event_cb`, `user_ctx` | none | Lifecycle events (see `simpleota_event_id_t`) |

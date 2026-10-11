@@ -8,7 +8,7 @@ on:
 
 jobs:
   host-tests:
-    name: Host tests (signing, sha256, json, watchdog)
+    name: Host tests (signing, sha256, json, watchdog, guard)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

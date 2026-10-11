@@ -64,6 +64,10 @@ esp_err_t sota_nvs_load(sota_nvs_state_t *out);
  * outgoing image identity (prev_*), records the new image identity as the
  * live one (build/hash/version), the partition addresses, the deferred
  * report context (fail_dep/fail_build, conf_pend=1), and trial=1.
+ *
+ * Refuses (ESP_ERR_INVALID_STATE, nothing written) when trial is already 2.
+ * That commit would replace fail_dep/fail_build and drop an unaccepted
+ * rolled_back report.
  */
 esp_err_t sota_nvs_arm_trial(uint32_t new_build, const char *new_hash,
                              const char *new_version, uint32_t new_part,

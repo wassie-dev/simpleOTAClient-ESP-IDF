@@ -70,6 +70,16 @@ esp_err_t sota_nvs_arm_trial(uint32_t new_build, const char *new_hash,
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
 
+    /* trial==2 is an unaccepted rolled_back report. Replacing fail_dep
+     * would drop it. The caller skips the offer; this is the backstop. */
+    uint8_t trial = 0;
+    get_u8(h, "sota_trial", &trial);
+    if (trial == 2) {
+        nvs_close(h);
+        ESP_LOGE(TAG, "not arming a trial over an unaccepted rolled_back report");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     /* One handle, one commit: either the whole arm lands or none of it. */
     esp_err_t rc = ESP_OK;
 #define DO(x)                       \

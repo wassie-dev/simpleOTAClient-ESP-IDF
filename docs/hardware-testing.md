@@ -189,6 +189,14 @@ to the previous working build, reported in the dashboard as `rolled_back`
 / `boot_failed` (see the main [README](../simpleota/README.md#rollback) for
 what the different rollback reasons mean).
 
+To test the trial watchdog, make the new build hang instead of crash.
+After `simpleota_start()`, create one task per core at priority
+`configMAX_PRIORITIES - 1` that spins forever. That starves the confirm
+timer and the SimpleOTA task without tripping the interrupt watchdog.
+After the confirm timeout plus its margin (360 s with the defaults), the
+chip watchdog resets the board, the bootloader reverts it, and the
+dashboard shows `rolled_back` / `watchdog`.
+
 ## Getting back to Arduino
 
 Reflash your Arduino sketch the normal way (Arduino IDE or arduino-cli). It

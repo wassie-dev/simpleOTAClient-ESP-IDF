@@ -326,7 +326,7 @@ static bool post_status(const char *event, const char *reason) {
 static void report_rolled_back_if_pending(void) {
     if (s.nvs.trial != 2) return;
     if (!s.nvs.fail_dep[0]) {
-        /* No context to report about (legacy state); just clear. */
+        /* No deployment context to report against; just clear. */
         s.nvs.trial = 0;
         sota_nvs_clear_trial();
         sota_nvs_clear_report();
@@ -415,9 +415,9 @@ static void do_confirm(void) {
      * on the check path (we already know the server is reachable there). */
 }
 
-/* Execute the confirm-timeout rollback. Runs in the COMPONENT task (the
- * esp_timer callback only notifies; see plan: never run NVS + mark_invalid
- * work on the shared esp_timer task stack). */
+/* Execute the confirm-timeout rollback. Runs in the COMPONENT task: the
+ * esp_timer callback only notifies, because NVS and mark_invalid work must
+ * not run on the shared esp_timer task stack. */
 static void do_rollback_from_timeout(void) {
     if (!s.in_trial) return; /* confirmed in the meantime */
     s.in_trial = false;

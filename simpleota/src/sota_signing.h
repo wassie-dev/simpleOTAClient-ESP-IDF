@@ -2,8 +2,8 @@
  * sota_signing.h - Ed25519 firmware-signature helpers for the SimpleOTA
  * ESP-IDF component.
  *
- * C port of SimpleOTAClient-Arduino's SimpleOTASigning.{h,cpp} (v0.4.0),
- * semantics byte-identical; the Arduino module is the reference contract.
+ * C port of SimpleOTAClient-Arduino's SimpleOTASigning.{h,cpp}, with
+ * byte-identical semantics; the Arduino module is the reference contract.
  * Portable (no ESP-IDF dependencies) so it can be unit-tested on a host
  * machine with plain cc/g++; see test/host/test_signing.c.
  *

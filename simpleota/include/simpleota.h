@@ -160,7 +160,9 @@ esp_err_t simpleota_check_now(void);
  */
 esp_err_t simpleota_confirm(void);
 
-/** Reboot into a downloaded update when disable_auto_reboot was set. */
+/** Reboot into a downloaded update when disable_auto_reboot was set.
+ *  Until then the component does not download another update, because
+ *  the next update slot holds the one waiting for this reboot. */
 esp_err_t simpleota_reboot_for_update(void);
 
 /** True while running an unconfirmed trial image. */

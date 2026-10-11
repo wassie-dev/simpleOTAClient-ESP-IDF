@@ -12,6 +12,13 @@ alone, except that a build with `CONFIG_BOOTLOADER_WDT_ENABLE` off stops
 one left running by a reset. `CONFIG_SIMPLEOTA_DISABLE_TRIAL_WATCHDOG`
 turns the watchdog off while the confirm timer stays in place.
 
+With `disable_auto_reboot`, the component does not download another
+update while a flashed one waits for `simpleota_reboot_for_update()`. A
+second download wrote into the slot holding the waiting update, and if
+it was cut off, the next boot fell back and reported that update as a
+`boot_failed` rollback. The component also does not download while the
+running image is unconfirmed, which the bootloader would refuse anyway.
+
 `simpleota_confirm()` keeps the trial going when the image cannot be
 marked valid, and a timeout rollback whose mark-invalid call fails
 restarts so the bootloader can switch back.

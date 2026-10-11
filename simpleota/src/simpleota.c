@@ -805,8 +805,40 @@ static esp_http_client_handle_t open_download(int64_t *content_length,
     }
 }
 
+/* True while the running image is still pending bootloader verification. */
+static bool running_image_pending(void) {
+#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    return running &&
+           esp_ota_get_state_partition(running, &state) == ESP_OK &&
+           state == ESP_OTA_IMG_PENDING_VERIFY;
+#else
+    return false;
+#endif
+}
+
 static void do_apply(void) {
     if (!s.offer.has) return;
+
+    /* ---- Slot guard ---------------------------------------------------- *
+     * The next update slot counts from the running image. While a flashed
+     * update waits for simpleota_reboot_for_update(), that slot holds it;
+     * while the running image is unconfirmed, the bootloader refuses the
+     * write. Either way, do not download. The offer is not a failure and
+     * is fetched again on the next check. */
+    if (s.pending_reboot) {
+        ESP_LOGI(TAG, "update waiting for reboot; not downloading build %" PRIu32,
+                 s.offer.build_number);
+        clear_offer();
+        return;
+    }
+    if (running_image_pending()) {
+        ESP_LOGI(TAG, "running image not confirmed; not downloading build %" PRIu32,
+                 s.offer.build_number);
+        clear_offer();
+        return;
+    }
 
     /* ---- Transport guard first (Arduino ordering: a non-HTTPS URL is
      * insecure_url regardless of what the signed gate would say) ---------- */

@@ -1,11 +1,10 @@
 /**
  * simpleota.c - SimpleOTA managed OTA client for ESP-IDF.
  *
- * Behavioral reference: SimpleOTAClient-Arduino v0.4.0. The protocol
- * sequence, status event vocabulary, NVS semantics, signed-firmware gate,
- * and rollback bookkeeping mirror that (hardware-verified) implementation;
- * where ESP-IDF offers a native mechanism (bootloader app rollback, the
- * certificate bundle) it is used instead of the Arduino DIY equivalent.
+ * The protocol sequence, status event vocabulary, signed-firmware gate, and
+ * the identity and trial keys in NVS match SimpleOTAClient-Arduino, so mixed
+ * fleets behave the same. Where ESP-IDF has a native mechanism, such as the
+ * certificate bundle, it is used directly.
  *
  * Threading model: one background task ("simpleota") owns all network and
  * flash activity. Public API calls only set flags / send notifications,
@@ -866,10 +865,9 @@ static void fail_update(esp_ota_handle_t handle, bool ota_started,
                         sota_sig_verifier_t *verifier, uint8_t *chunk,
                         const char *reason) {
     if (ota_started) esp_ota_abort(handle);
-    /* Free the download TLS session BEFORE the status POST (each mbedTLS
-     * session costs tens of KB of heap; two at once can exhaust an ESP32.
-     * This exact ordering bug lost 'failed' events in the field on the
-     * Arduino client). */
+    /* Free the download TLS session BEFORE the status POST: each mbedTLS
+     * session costs tens of KB of heap, and two at once can exhaust an
+     * ESP32, which loses the 'failed' event. */
     if (client) esp_http_client_cleanup(client);
     free(verifier);
     free(chunk);

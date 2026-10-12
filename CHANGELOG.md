@@ -1,16 +1,55 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
-- Check intervals and the initial delay are converted to FreeRTOS ticks in
-  64 bits. Long durations no longer wrap to a much shorter wait.
-- With `disable_auto_reboot`, the component does not download another update
-  while a flashed one waits for `simpleota_reboot_for_update()`. A second
-  download would have overwritten the waiting update.
-- `confirmed` and `rolled_back` reports count as delivered on any HTTP
-  response; the device does not act on the response body. A report with no
-  response is retried three times at 10 s, then at the normal check interval,
-  instead of polling every 10 s indefinitely.
+### Upgrading
+
+- Updates from 0.1.0 are protected by the new trial handling: the trial record
+  keeps the NVS key layout of 0.1.0, and a rollback to 0.1.0 behaves as it did
+  before.
+- On a trial boot, `simpleota_init()` starts the chip watchdog. Call it as soon
+  as NVS is ready, and confirm within the confirm timeout.
+- `simpleota_confirm()` can now return an error; check it when you call it.
+- Devices that deep-sleep must confirm before the first sleep after an update;
+  waking from deep sleep before that rolls back.
+
+### Added
+
+- A hang during a trial is reset by the chip's RTC or LP watchdog, started by
+  `simpleota_init()` for the confirm timeout plus a margin, and the bootloader
+  returns to the previous build; the report says `watchdog`. Confirming and
+  `simpleota_deinit()` stop it, and so does deep sleep. A confirm timeout past
+  the watchdog's limit (about 8 h) logs a warning.
+  `CONFIG_SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` leaves it out.
+- `rolled_back` reports carry the reset that ended the trial (`panic`,
+  `watchdog`, `brownout`, and so on) instead of `boot_failed`, or
+  `confirm_timeout` when the component's own timer rolled back.
+- An unconfirmed trial image that wakes from deep sleep rolls back and reports
+  `deep_sleep`. With `CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP` the
+  bootloader resumes the image on a wake, so without this an image that
+  sleeps before confirming would get a new confirm timeout on every wake and
+  never roll back.
+
+### Changed
+
+- `confirmed` and `rolled_back` reports go to an outbox in NVS (two slots,
+  oldest dropped first) once the boot has worked them out, and the trial keys
+  are cleared. A pending report never holds up an update.
+- Reports count as delivered on any HTTP response; the device does not act on
+  the response body. A report with no response is retried three times at 10 s,
+  then at the normal check interval, instead of polling every 10 s
+  indefinitely.
+- `simpleota_confirm()` marks the image valid first and returns the error, with
+  the trial still running, if the bootloader cannot record it.
+- No update is downloaded while a trial is running, so the previous image stays
+  in the other slot.
+- During a trial each request is sent once and queued reports wait until the
+  trial ends, and the watchdog margin covers one request at the configured
+  HTTP timeout. A confirm timeout during a network outage therefore rolls
+  back through the component and reports `confirm_timeout`, not `watchdog`.
+
+### Fixed
+
 - While `is_connected()` returns false, it is polled every second and the check
   runs as soon as it returns true. A check skipped at boot no longer waits a
   whole check interval.
@@ -25,39 +64,17 @@
   version label containing a quote or backslash made every later check-in
   invalid JSON, so the device never got another offer.
 - The trial record, including the new build's identity, is saved before the
-  boot slot switches, marked by `sota_staged` until the switch happens. A power
-  cut during an update no longer leaves the new image running without a trial.
-  The record keeps the key layout of 0.1.0, so updates from 0.1.0 and rollbacks
-  to it behave as before.
-- `confirmed` and `rolled_back` reports go to an outbox in NVS (two slots,
-  oldest dropped first) once the boot has worked them out, and the trial keys
-  are cleared. A pending report never holds up an update.
+  boot slot switches. A power cut during an update no longer leaves the new
+  image running without a trial.
+- Check intervals and the initial delay are converted to FreeRTOS ticks in
+  64 bits. Long durations no longer wrap to a much shorter wait.
+- With `disable_auto_reboot`, the component does not download another update
+  while a flashed one waits for `simpleota_reboot_for_update()`. A second
+  download would have overwritten the waiting update.
 - A deep-sleep wake that resumes the old image while a flashed update waits for
   its reboot keeps the update waiting instead of reporting it as rolled back.
-- `rolled_back` reports carry the reset that ended the trial (`panic`,
-  `watchdog`, `brownout`, and so on) instead of `boot_failed`, or
-  `confirm_timeout` when the component's own timer rolled back.
-- An unconfirmed trial image that wakes from deep sleep rolls back and reports
-  `deep_sleep`. With `CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP` the
-  bootloader resumes the image on a wake, so without this an image that
-  sleeps before confirming would get a new confirm timeout on every wake and
-  never roll back.
-- `simpleota_confirm()` marks the image valid first and returns the error, with
-  the trial still running, if the bootloader cannot record it.
-- No update is downloaded while a trial is running, so the previous image stays
-  in the other slot.
-- A hang during a trial is reset by the chip's RTC or LP watchdog, started by
-  `simpleota_init()` for the confirm timeout plus a margin, and the bootloader
-  returns to the previous build; the report says `watchdog`. Confirming and
-  `simpleota_deinit()` stop it, and so does deep sleep. A confirm timeout past
-  the watchdog's limit (about 8 h) logs a warning.
-  `CONFIG_SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` leaves it out.
-- During a trial each request is sent once and queued reports wait until the
-  trial ends, and the watchdog margin covers one request at the configured
-  HTTP timeout. A confirm timeout during a network outage therefore rolls
-  back through the component and reports `confirm_timeout`, not `watchdog`.
 
-## 0.1.0 (released)
+## 0.1.0 (2026-07-24)
 
 Initial release.
 

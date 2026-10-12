@@ -182,12 +182,27 @@ Use `examples/signed` instead of `examples/basic`, with the same steps as above
 
 ## 10. Test rollback (optional)
 
-Build a version that deliberately crashes shortly after boot (e.g. call
-`abort()` a few seconds into `app_main`), deploy it, and watch the board
-flash it, reboot, crash, and get automatically reverted by the bootloader
-to the previous working build, reported in the dashboard as `rolled_back`
-/ `panic` (see the main [README](../simpleota/README.md#rollback) for
-what the different rollback reasons mean).
+Rollback needs `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, which the examples
+set. Deploy a known-good build first, then deploy each of these test builds
+from it and watch the log and the dashboard. Adding
+`.confirm_timeout_s = 60` to the config in `main.c` keeps the waits short.
+
+| Test build | Expected result |
+|---|---|
+| Unchanged | Stays on the new build; `confirmed` |
+| `.manual_confirm = true` and never calls `simpleota_confirm()` | Back on the known-good build after the confirm timeout; `rolled_back` / `confirm_timeout` |
+| Calls `abort()` a few seconds into `app_main` | Back on the known-good build after one reset; `rolled_back` / `panic` |
+| Hangs in `app_main` (`for (;;) {}`) | Back on the known-good build; `rolled_back` / `confirm_timeout`, or the watchdog reset that caught the hang |
+| Starts a task at priority `configMAX_PRIORITIES - 1` on each core that spins forever, so the confirm timer cannot run either | Back on the known-good build after the confirm timeout plus the watchdog margin; `rolled_back` / `watchdog` |
+| Unchanged, but you unplug the board during its first seconds | Back on the known-good build; `rolled_back` / `power_on` |
+
+Unplugging during the download leaves the known-good build running, and it
+downloads the update again on a later check. Run the table once on a board
+that still has 0.1.0, so the first update into this release is covered too.
+If your devices deep-sleep, also put a test build to sleep before it
+confirms: it should wake on the known-good build with `rolled_back` /
+`deep_sleep`. See the main
+[README](../simpleota/README.md#rollback) for what each rollback reason means.
 
 ## Getting back to Arduino
 

@@ -22,7 +22,8 @@ New to ESP-IDF, or want to test on real hardware? See
 [docs/hardware-testing.md](docs/hardware-testing.md) for a full
 install-to-first-OTA walkthrough.
 
-Host-side tests for the security-critical modules: `make -C test/host test`.
+Host-side tests for the security-critical modules and the trial decisions:
+`make -C test/host test`.
 
 **Releasing** (mirrors SimpleOTAClient-Arduino): bump `version:` in
 [simpleota/idf_component.yml](simpleota/idf_component.yml) and merge to

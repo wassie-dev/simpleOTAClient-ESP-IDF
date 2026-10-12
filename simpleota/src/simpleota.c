@@ -280,14 +280,18 @@ static int http_post_json(const char *path, const char *body, char *resp,
  * ------------------------------------------------------------------------- */
 
 /*
- * Post one lifecycle event. Success requires BOTH a 2xx and "accepted": true
- * in the body (mirrors Arduino sendStatusFor).
+ * Post one lifecycle event. Acceptance requires BOTH a 2xx and
+ * "accepted": true in the body (mirrors Arduino sendStatusFor). An event
+ * that can never be sent (no deployment, or a body that does not fit) is
+ * a final rejection: retrying it cannot succeed.
  */
-static bool post_status_for(const char *event, const char *reason,
-                            const char *deployment_id, uint32_t build_number) {
+static sota_status_outcome_t post_status_outcome_for(const char *event,
+                                                     const char *reason,
+                                                     const char *deployment_id,
+                                                     uint32_t build_number) {
     if (!deployment_id || !deployment_id[0]) {
         ESP_LOGD(TAG, "status: no deployment context; skipping %s", event);
-        return false;
+        return SOTA_STATUS_REJECTED;
     }
     ESP_LOGI(TAG, "status: event=%s build=%" PRIu32 " deployment=%s%s%s", event,
              build_number, deployment_id, reason ? " reason=" : "",
@@ -310,15 +314,20 @@ static bool post_status_for(const char *event, const char *reason,
                      "\"event\":\"%s\",\"build_number\":%" PRIu32 "}",
                      s.device_id, deployment_id, event, build_number);
     }
-    if (n <= 0 || (size_t)n >= sizeof(body)) return false;
+    if (n <= 0 || (size_t)n >= sizeof(body)) return SOTA_STATUS_REJECTED;
 
     char resp[256];
     int status = http_post_json("/api/v1/ota/status/", body, resp, sizeof(resp));
-    if (status < 200 || status >= 300) return false;
-
     bool accepted = false;
-    sota_json_get_bool(resp, "accepted", &accepted);
-    return accepted;
+    bool has_accepted = status >= 200 && status < 300 &&
+                        sota_json_get_bool(resp, "accepted", &accepted);
+    return sota_status_outcome(status, has_accepted, accepted);
+}
+
+static bool post_status_for(const char *event, const char *reason,
+                            const char *deployment_id, uint32_t build_number) {
+    return post_status_outcome_for(event, reason, deployment_id,
+                                   build_number) == SOTA_STATUS_ACCEPTED;
 }
 
 /* Post a status event for the CURRENT offer. */
@@ -329,7 +338,8 @@ static bool post_status(const char *event, const char *reason) {
 
 /*
  * Deferred terminal reports. Both retry across reboots until the server
- * accepts them; the NVS keys they consume are cleared only on acceptance.
+ * answers. "confirmed" clears its NVS keys on acceptance; "rolled_back"
+ * clears them on acceptance or a final rejection (sota_status_outcome).
  */
 static void report_rolled_back_if_pending(void) {
     if (s.nvs.trial != 2) return;
@@ -342,16 +352,22 @@ static void report_rolled_back_if_pending(void) {
     }
     const char *reason =
         s.nvs.rb_reason[0] ? s.nvs.rb_reason : "confirm_timeout";
-    if (post_status_for("rolled_back", reason, s.nvs.fail_dep,
-                        s.nvs.fail_build)) {
-        s.nvs.trial = 0;
-        s.nvs.conf_pend = 0;
-        s.nvs.fail_dep[0] = '\0';
-        s.nvs.fail_build = 0;
-        s.nvs.rb_reason[0] = '\0';
-        sota_nvs_clear_trial();
-        sota_nvs_clear_report();
+    sota_status_outcome_t outcome = post_status_outcome_for(
+        "rolled_back", reason, s.nvs.fail_dep, s.nvs.fail_build);
+    if (outcome == SOTA_STATUS_RETRY) return;
+    /* A final rejection is dropped too. Retrying it would get the same
+     * answer, and no download starts while the report is pending. */
+    s.nvs.trial = 0;
+    s.nvs.conf_pend = 0;
+    s.nvs.fail_dep[0] = '\0';
+    s.nvs.fail_build = 0;
+    s.nvs.rb_reason[0] = '\0';
+    sota_nvs_clear_trial();
+    sota_nvs_clear_report();
+    if (outcome == SOTA_STATUS_ACCEPTED) {
         ESP_LOGI(TAG, "rolled_back report accepted");
+    } else {
+        ESP_LOGW(TAG, "rolled_back report rejected by the server; dropped");
     }
 }
 
@@ -493,25 +509,6 @@ static const esp_partition_t *find_app_partition_by_addr(uint32_t addr) {
 }
 #endif
 
-/* Running image is PENDING_VERIFY but this boot is not a SimpleOTA trial
- * (trial byte still 0). Nothing will confirm it. Roll it back so it is
- * not left unconfirmed. Does not return when the rollback reboot starts. */
-static void rollback_unsupervised_pending(void) {
-#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
-    if (s.nvs.trial != 0) return;
-    const esp_partition_t *running = esp_ota_get_running_partition();
-    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
-    if (!running || esp_ota_get_state_partition(running, &state) != ESP_OK ||
-        state != ESP_OTA_IMG_PENDING_VERIFY) {
-        return;
-    }
-    ESP_LOGE(TAG, "unconfirmed image with no SimpleOTA trial; rolling it back");
-    esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();
-    ESP_LOGE(TAG, "rollback of unsupervised image failed: %s",
-             esp_err_to_name(err));
-#endif
-}
-
 /* trial==1 but this boot is still the previous app. otadata tells a
  * not-yet-rebooted image (deinit/init, or a deep-sleep wake that resumed
  * this app) from a rollback. */
@@ -539,7 +536,6 @@ static void process_boot_validation(void) {
     /* Stop a trial watchdog left running by a reset the bootloader did not
      * reprogram. A trial boot arms it again below. */
     sota_wdt_quiesce();
-    rollback_unsupervised_pending();
 
     if (s.nvs.trial == 1) {
         if (running && running->address == s.nvs.new_part) {

@@ -1,5 +1,6 @@
 /**
- * sota_guard.h - download-guard and waiting-for-reboot decisions.
+ * sota_guard.h - download-guard, waiting-for-reboot, and status-report
+ * decisions.
  *
  * Pure helpers so the host tests can lock the policy without ESP-IDF.
  * Image-state values match esp_ota_img_states_t.
@@ -76,6 +77,40 @@ static inline bool sota_waiting_for_reboot(bool boot_is_new, bool state_known,
     if (!boot_is_new) return false;
     if (!state_known) return true;
     return new_slot_state == SOTA_IMG_NEW;
+}
+
+/**
+ * How a status POST ended, for reports that are retried until the server
+ * answers.
+ *
+ * SOTA_STATUS_ACCEPTED  2xx with accepted=true.
+ * SOTA_STATUS_RETRY     No response, a 5xx, 401, 403, 408, or 429, or a
+ *                       2xx without an accepted field. Worth sending again.
+ * SOTA_STATUS_REJECTED  2xx with accepted=false, or any other 4xx. Sending
+ *                       the same report again gets the same answer.
+ */
+typedef enum {
+    SOTA_STATUS_ACCEPTED = 1,
+    SOTA_STATUS_RETRY,
+    SOTA_STATUS_REJECTED,
+} sota_status_outcome_t;
+
+static inline sota_status_outcome_t sota_status_outcome(int http_code,
+                                                       bool has_accepted_field,
+                                                       bool accepted)
+{
+    if (http_code >= 200 && http_code < 300) {
+        if (!has_accepted_field) return SOTA_STATUS_RETRY;
+        return accepted ? SOTA_STATUS_ACCEPTED : SOTA_STATUS_REJECTED;
+    }
+    if (http_code >= 400 && http_code < 500) {
+        if (http_code == 401 || http_code == 403 || http_code == 408 ||
+            http_code == 429) {
+            return SOTA_STATUS_RETRY;
+        }
+        return SOTA_STATUS_REJECTED;
+    }
+    return SOTA_STATUS_RETRY;
 }
 
 #endif /* SOTA_GUARD_H */

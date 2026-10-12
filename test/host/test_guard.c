@@ -64,6 +64,31 @@ int main(void)
     check(!sota_waiting_for_reboot(false, false, 0),
           "no state byte and the boot partition moved");
 
+    /* A retried status report is dropped only when sending it again cannot
+     * help. */
+    check(sota_status_outcome(200, true, true) == SOTA_STATUS_ACCEPTED,
+          "2xx accepted=true is accepted");
+    check(sota_status_outcome(200, true, false) == SOTA_STATUS_REJECTED,
+          "2xx accepted=false is a final rejection");
+    check(sota_status_outcome(200, false, false) == SOTA_STATUS_RETRY,
+          "2xx without an accepted field is retried");
+    check(sota_status_outcome(404, false, false) == SOTA_STATUS_REJECTED,
+          "404 is a final rejection");
+    check(sota_status_outcome(400, false, false) == SOTA_STATUS_REJECTED,
+          "400 is a final rejection");
+    check(sota_status_outcome(401, false, false) == SOTA_STATUS_RETRY,
+          "401 is retried: the token may be fixed");
+    check(sota_status_outcome(403, false, false) == SOTA_STATUS_RETRY,
+          "403 is retried: the token may be fixed");
+    check(sota_status_outcome(408, false, false) == SOTA_STATUS_RETRY,
+          "408 is retried");
+    check(sota_status_outcome(429, false, false) == SOTA_STATUS_RETRY,
+          "429 is retried");
+    check(sota_status_outcome(503, false, false) == SOTA_STATUS_RETRY,
+          "5xx is retried");
+    check(sota_status_outcome(-1, false, false) == SOTA_STATUS_RETRY,
+          "no response is retried");
+
     if (g_failures) {
         printf("%d FAILURE(S)\n", g_failures);
         return 1;

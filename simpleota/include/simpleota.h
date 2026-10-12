@@ -134,9 +134,8 @@ typedef struct {
  * Initialize the component: copy config, apply defaults, parse and pin
  * signing keys, load persisted state, and run boot-time trial validation.
  * On a pending trial this arms the confirm timer and the chip RTC/LP
- * watchdog (confirm timeout plus a margin). With bootloader rollback
- * on, a running image left PENDING_VERIFY and no SimpleOTA trial is
- * rolled back from this call.
+ * watchdog (confirm timeout plus a margin). An unconfirmed image this
+ * component did not install is left for the application to confirm.
  *
  * Call AFTER nvs_flash_init(), and before other bring-up when you can:
  * the chip watchdog starts in this call. Returns ESP_ERR_INVALID_ARG for

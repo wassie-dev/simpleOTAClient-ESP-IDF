@@ -20,15 +20,18 @@
   update while a flashed one waits for `simpleota_reboot_for_update()`.
   The next update slot is the one just written, so another download would
   erase it. The check-in already reports that flashed build, so the same
-  build is not offered again; a newer build is not downloaded until that
-  image has been confirmed. A supervised trial waits the same way. An
-  unconfirmed image this component
-  is not supervising does not swallow the offer: `esp_ota_begin` rejects
-  `PENDING_VERIFY` and the failure is reported. If the trial record cannot
-  be saved after the boot partition is set, that new image is marked
-  invalid and the device reboots into the app it was already running. A
-  new offer is not applied while a `rolled_back` report is still waiting
-  for the server to accept it.
+  build is not offered again. A supervised trial waits the same way.
+- An unconfirmed image this component did not install is left alone for
+  the application to confirm. Its offer is not swallowed: `esp_ota_begin`
+  rejects `PENDING_VERIFY` and the failure is reported.
+- If the trial record cannot be saved after the boot partition is set,
+  that new image is marked invalid and the device reboots into the app it
+  was already running.
+- No update is downloaded while a `rolled_back` report is waiting for the
+  server's answer, because a new trial would overwrite its record. The
+  report is dropped once the server accepts it or rejects it for good
+  (`accepted: false`, or a 4xx other than 401, 403, 408, and 429), so a
+  rejected report cannot block updates.
 - `simpleota_deinit()`/`simpleota_init()` in the same boot, and a
   deep-sleep wake that resumes the old app, do not treat a flashed image
   as a `boot_failed` rollback when its otadata state is still

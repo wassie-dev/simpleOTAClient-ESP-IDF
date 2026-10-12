@@ -118,7 +118,10 @@ download_started -> downloaded -> flashed -> validated -> reboot
 Failures report `failed` with a reason token (`checksum_mismatch`,
 `signature_invalid`, `download_stalled`, `update_begin_failed`, ...) that the
 dashboard shows inline on the device row. `confirmed` and `rolled_back` are
-retried across reboots until the server accepts them.
+retried across reboots until the server answers. A `rolled_back` report is
+dropped once the server accepts it or rejects it for good (`accepted: false`,
+or a 4xx other than 401, 403, 408, and 429). While it waits, no update is
+downloaded, because a new trial would overwrite the record it is read from.
 
 ## Rollback
 

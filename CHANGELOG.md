@@ -46,6 +46,16 @@
   the trial still running, if the bootloader cannot record it.
 - No update is downloaded while a trial is running, so the previous image stays
   in the other slot.
+- A hang during a trial is reset by the chip's RTC or LP watchdog, started by
+  `simpleota_init()` for the confirm timeout plus a margin, and the bootloader
+  returns to the previous build; the report says `watchdog`. Confirming and
+  `simpleota_deinit()` stop it, and so does deep sleep. A confirm timeout past
+  the watchdog's limit (about 8 h) logs a warning.
+  `CONFIG_SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` leaves it out.
+- During a trial each request is sent once and queued reports wait until the
+  trial ends, and the watchdog margin covers one request at the configured
+  HTTP timeout. A confirm timeout during a network outage therefore rolls
+  back through the component and reports `confirm_timeout`, not `watchdog`.
 
 ## 0.1.0 (released)
 

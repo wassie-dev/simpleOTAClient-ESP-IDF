@@ -95,7 +95,8 @@ All fields of `simpleota_config_t` (strings are copied at init):
 
 Build-time knobs (menuconfig, "SimpleOTA"): task stack size (12288),
 priority (5), HTTP timeout (15 s), HTTP TX buffer (2048 -- must fit the long
-pre-signed download URLs), download chunk size (4096).
+pre-signed download URLs), download chunk size (4096), and
+`SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` (off), which leaves the trial watchdog out.
 
 ## Update lifecycle
 
@@ -125,6 +126,22 @@ the previous app. On top of that, the component runs a confirm timeout
 (default 300 s): if the new image runs but never completes a successful
 check-in, it is marked invalid and the device reboots into the previous
 build, reporting `rolled_back` / `confirm_timeout`.
+
+A hang that also stops the confirm timer is caught by the chip's RTC or LP
+watchdog, which runs on the slow clock. `simpleota_init()` starts it on a trial
+boot for the confirm timeout plus a margin, and confirming stops it. The margin
+is the larger of 10 percent and the time one request can take at
+`CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` (70 s at the default), and never less than
+60 s. During a trial each request is sent once and queued reports wait, so
+when the confirm timeout runs out the component rolls back first, reporting
+`confirm_timeout`. When the watchdog fires, the chip resets, the bootloader
+returns to the previous build, and the report says `watchdog`. Call `simpleota_init()`
+as soon as NVS is ready, since that is when the watchdog starts. At the usual
+internal slow clock it can wait at most about 8 hours (about 13 on the S2); a
+longer confirm timeout logs a warning and the watchdog fires at its limit. It
+stops before deep sleep. With the bootloader watchdog on (the default), other
+boots leave the RTC watchdog alone. `CONFIG_SIMPLEOTA_DISABLE_TRIAL_WATCHDOG`
+leaves it out; crashes still roll back.
 
 After any rollback the component restores the previous build number in NVS,
 so the dashboard sees the truth and the server can re-offer fixed builds. The

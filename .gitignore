@@ -10,6 +10,7 @@ test/host/*.o
 test/host/test_signing
 test/host/test_report
 test/host/test_trial
+test/host/test_wdt
 
 # Firmware binaries never belong in the repo
 *.bin

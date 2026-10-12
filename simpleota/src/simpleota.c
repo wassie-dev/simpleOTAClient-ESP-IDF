@@ -47,6 +47,7 @@
 #include "sota_signing.h"
 #include "sota_time.h"
 #include "sota_trial.h"
+#include "sota_wdt.h"
 
 _Static_assert((int)SOTA_RST_POWERON == (int)ESP_RST_POWERON &&
                    (int)SOTA_RST_SW == (int)ESP_RST_SW &&
@@ -231,7 +232,11 @@ static int http_post_json(const char *path, const char *body, char *resp,
 
     size_t body_len = strlen(body);
 
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    /* One attempt during a trial: the confirm-timeout rollback runs in this
+     * task, and the chip watchdog margin covers one request (sota_wdt.h).
+     * The trial polls again soon anyway. */
+    const int attempts = s.in_trial ? 1 : 2;
+    for (int attempt = 0; attempt < attempts; ++attempt) {
         if (attempt > 0) vTaskDelay(sota_ms_to_ticks(2000, configTICK_RATE_HZ));
 
         esp_http_client_config_t cfg = {
@@ -487,6 +492,7 @@ static esp_err_t do_confirm(void) {
         return err;
     }
 #endif
+    sota_wdt_disarm();
     stop_confirm_timer();
     queue_report("confirmed", NULL, s.nvs.fail_dep, s.nvs.fail_build);
     sota_nvs_drop_trial();
@@ -577,6 +583,10 @@ static void start_trial(bool staged) {
                  "trial boot but app state is %d (expected "
                  "PENDING_VERIFY); bootloader rollback may be off",
                  (int)state);
+    } else {
+        /* A hang that stops the confirm timer still resets the chip, and the
+         * bootloader returns to the previous image. */
+        sota_wdt_arm(s.confirm_timeout_s);
     }
     s.in_trial = true;
     if (arm_confirm_timer() != ESP_OK) {
@@ -625,6 +635,8 @@ static void process_boot_validation(void) {
     }
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *boot = esp_ota_get_boot_partition();
+    /* Stop a trial watchdog a reset left running; a trial boot arms it again. */
+    sota_wdt_quiesce();
     sota_boot_facts_t facts = {
         .trial = s.nvs.trial,
         .staged = s.nvs.staged,
@@ -731,8 +743,10 @@ static char *build_check_body(void) {
 /* Returns true when an update offer was stored. */
 static bool do_check(void) {
     /* Queued reports go first, as their own status POSTs, so a degraded
-     * /check/ endpoint does not delay them. */
-    send_pending_reports();
+     * /check/ endpoint does not delay them. During a trial they wait until
+     * it ends, so the check is the only request the confirm-timeout
+     * rollback can wait behind. */
+    if (!s.in_trial) send_pending_reports();
 
     char *body = build_check_body();
     if (!body) return false;
@@ -1458,6 +1472,7 @@ uint32_t simpleota_current_build(void) { return s.nvs.build; }
 
 esp_err_t simpleota_deinit(void) {
     if (s.task) simpleota_stop();
+    sota_wdt_disarm();
     stop_confirm_timer();
     clear_offer();
     free(s.token);

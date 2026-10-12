@@ -8,10 +8,11 @@ INC     := -I$(ROOT)/src -I$(ROOT)/src/vendor
 
 OBJS := monocypher.o monocypher-ed25519.o sota_json.o sota_sha256.o sota_signing.o
 
-test: test_signing test_report test_trial
+test: test_signing test_report test_trial test_wdt
 	./test_signing
 	./test_report
 	./test_trial
+	./test_wdt
 
 test_signing: test_signing.c $(OBJS)
 	$(CC) $(CFLAGS) $(INC) -o $@ test_signing.c $(OBJS)
@@ -21,6 +22,9 @@ test_report: test_report.c $(ROOT)/src/sota_report.h $(ROOT)/src/sota_time.h
 
 test_trial: test_trial.c $(ROOT)/src/sota_trial.h $(ROOT)/src/sota_report.h
 	$(CC) $(CFLAGS) $(INC) -o $@ test_trial.c
+
+test_wdt: test_wdt.c $(ROOT)/src/sota_wdt.h
+	$(CC) $(CFLAGS) $(INC) -o $@ test_wdt.c
 
 monocypher.o: $(ROOT)/src/vendor/monocypher.c
 	$(CC) $(CFLAGS) $(INC) -c -o $@ $<
@@ -38,6 +42,6 @@ sota_signing.o: $(ROOT)/src/sota_signing.c
 	$(CC) $(CFLAGS) $(INC) -c -o $@ $<
 
 clean:
-	rm -f test_signing test_report test_trial $(OBJS)
+	rm -f test_signing test_report test_trial test_wdt $(OBJS)
 
 .PHONY: test clean

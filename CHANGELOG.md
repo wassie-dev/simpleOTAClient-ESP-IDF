@@ -34,6 +34,18 @@
   are cleared. A pending report never holds up an update.
 - A deep-sleep wake that resumes the old image while a flashed update waits for
   its reboot keeps the update waiting instead of reporting it as rolled back.
+- `rolled_back` reports carry the reset that ended the trial (`panic`,
+  `watchdog`, `brownout`, and so on) instead of `boot_failed`, or
+  `confirm_timeout` when the component's own timer rolled back.
+- An unconfirmed trial image that wakes from deep sleep rolls back and reports
+  `deep_sleep`. With `CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP` the
+  bootloader resumes the image on a wake, so without this an image that
+  sleeps before confirming would get a new confirm timeout on every wake and
+  never roll back.
+- `simpleota_confirm()` marks the image valid first and returns the error, with
+  the trial still running, if the bootloader cannot record it.
+- No update is downloaded while a trial is running, so the previous image stays
+  in the other slot.
 
 ## 0.1.0 (released)
 

@@ -186,7 +186,7 @@ Build a version that deliberately crashes shortly after boot (e.g. call
 `abort()` a few seconds into `app_main`), deploy it, and watch the board
 flash it, reboot, crash, and get automatically reverted by the bootloader
 to the previous working build, reported in the dashboard as `rolled_back`
-/ `boot_failed` (see the main [README](../simpleota/README.md#rollback) for
+/ `panic` (see the main [README](../simpleota/README.md#rollback) for
 what the different rollback reasons mean).
 
 ## Getting back to Arduino

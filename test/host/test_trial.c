@@ -59,6 +59,10 @@ int main(void)
           "slot switched, sota_staged left behind, deep-sleep wake: waiting");
     check(classify(1, false, B, A, A, true) == SOTA_BOOT_ROLLED_BACK,
           "deep-sleep wake with the slot back on the old image: rolled back");
+    check(classify(1, false, B, B, B, true) == SOTA_BOOT_SLEPT_IN_TRIAL,
+          "deep-sleep wake on the new image before it was confirmed: roll back");
+    check(classify(1, true, B, B, B, true) == SOTA_BOOT_SLEPT_IN_TRIAL,
+          "deep-sleep wake on the new image, sota_staged left behind: roll back");
     check(classify(7, false, B, B, B, false) == SOTA_BOOT_TRIAL,
           "any trial value other than 0 and 2 is a trial");
     check(classify(1, false, B, 0, 0, false) == SOTA_BOOT_INCOMPLETE,
@@ -93,6 +97,27 @@ int main(void)
               !sota_abandon_restores_identity(SOTA_STAGED_STARTED) &&
               sota_abandon_restores_identity(SOTA_STAGED_SNAPSHOT),
           "only a full snapshot is restored");
+
+    /* Rollback reasons. */
+    check(strcmp(sota_rollback_reason(SOTA_RST_PANIC), "panic") == 0, "panic");
+    check(strcmp(sota_rollback_reason(SOTA_RST_WDT), "watchdog") == 0, "chip watchdog");
+    check(strcmp(sota_rollback_reason(SOTA_RST_BROWNOUT), "brownout") == 0, "brownout");
+    check(strcmp(sota_rollback_reason(SOTA_RST_SW), "reset") == 0, "software reset");
+    check(strcmp(sota_rollback_reason(0), "reset") == 0, "unknown reset");
+    check(strcmp(sota_rollback_reason(SOTA_RST_INT_WDT), "int_wdt") == 0, "interrupt watchdog");
+    check(strcmp(sota_rollback_reason(SOTA_RST_TASK_WDT), "task_wdt") == 0, "task watchdog");
+    check(strcmp(sota_rollback_reason(SOTA_RST_POWERON), "power_on") == 0, "power on");
+    check(strcmp(sota_rollback_reason(SOTA_RST_DEEPSLEEP), "deep_sleep") == 0, "deep sleep");
+    int all_fit = 1;
+    for (int rr = -1; rr <= 32; ++rr) {
+        sota_outbox_t b;
+        sota_outbox_init(&b);
+        all_fit = all_fit && sota_outbox_push(&b, "rolled_back", sota_rollback_reason(rr), "d", 1);
+    }
+    sota_outbox_t timeout_box;
+    sota_outbox_init(&timeout_box);
+    check(all_fit && sota_outbox_push(&timeout_box, "rolled_back", "confirm_timeout", "d", 1),
+          "every rollback reason fits the reason field");
 
     /* Outbox. */
     sota_outbox_t box;

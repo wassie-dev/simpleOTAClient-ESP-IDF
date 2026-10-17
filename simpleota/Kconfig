@@ -25,7 +25,8 @@ config SIMPLEOTA_HTTP_TIMEOUT_MS
         Socket timeout for the check, status, and download requests. During
         a download this doubles as the stall detector: a read that makes no
         progress for this long fails the update with reason
-        "download_stalled".
+        "download_stalled". The trial watchdog's margin grows with it, so a
+        trial can always finish its current request and roll back first.
 
 config SIMPLEOTA_HTTP_TX_BUFFER
     int "HTTP client TX buffer (bytes)"
@@ -41,5 +42,16 @@ config SIMPLEOTA_DOWNLOAD_CHUNK
     help
         Heap-allocated buffer used to stream the firmware image from the
         HTTP client into the OTA partition while hashing and verifying.
+
+config SIMPLEOTA_DISABLE_TRIAL_WATCHDOG
+    bool "Leave the chip watchdog alone during a trial"
+    default n
+    depends on BOOTLOADER_APP_ROLLBACK_ENABLE
+    help
+        On a trial boot the component starts the chip's RTC or LP watchdog
+        for the confirm timeout plus a margin, so a hang that stops the
+        confirm timer still resets the chip and the bootloader switches
+        back. Enable this to leave the watchdog out. The confirm timer still
+        runs, and a crash still switches back through the bootloader.
 
 endmenu

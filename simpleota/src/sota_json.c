@@ -108,3 +108,30 @@ bool sota_json_get_u32(const char *json, const char *key, uint32_t *out) {
     *out = v;
     return true;
 }
+
+bool sota_json_escape(const char *src, char *out, size_t out_cap) {
+    if (out_cap == 0) return false;
+    size_t o = 0;
+    for (const char *p = src ? src : ""; *p; ++p) {
+        unsigned char c = (unsigned char)*p;
+        char esc = 0;
+        if (c == '"' || c == '\\') esc = (char)c;
+        else if (c == '\n') esc = 'n';
+        else if (c == '\r') esc = 'r';
+        else if (c == '\t') esc = 't';
+        else if (c < 0x20) continue;
+        size_t need = esc ? 2 : 1;
+        if (o + need >= out_cap) {
+            out[0] = '\0';
+            return false;
+        }
+        if (esc) {
+            out[o++] = '\\';
+            out[o++] = esc;
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = '\0';
+    return true;
+}

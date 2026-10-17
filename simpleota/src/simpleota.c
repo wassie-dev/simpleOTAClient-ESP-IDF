@@ -9,14 +9,15 @@
  *
  * Threading model: one background task ("simpleota") owns all network and
  * flash activity. Public API calls only set flags / send notifications,
- * except simpleota_confirm() and simpleota_reboot_for_update(), which are
- * documented as app-task calls and touch NVS directly (same model as the
- * Arduino client).
+ * except simpleota_confirm(), which touches NVS on the caller's task, and
+ * simpleota_reboot_for_update(), which stops the background task and posts
+ * its status from a short-lived task of the same stack size.
  */
 
 #include "simpleota.h"
 
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,8 +42,10 @@
 
 #include "sota_json.h"
 #include "sota_nvs.h"
+#include "sota_report.h"
 #include "sota_sha256.h"
 #include "sota_signing.h"
+#include "sota_time.h"
 
 static const char *TAG = "simpleota";
 
@@ -111,12 +114,19 @@ typedef struct {
     volatile bool stop_requested;
     volatile bool in_trial;
     volatile bool confirm_timeout_fired;
-    volatile bool pending_reboot; /* update flashed, waiting for manual reboot */
+    uint32_t report_failures;     /* report sends with no response this boot */
     esp_timer_handle_t confirm_timer;
     bool auth_warned;
 } sota_state_t;
 
 static sota_state_t s;
+
+/* A flashed update waits for its reboot: the boot slot already points at
+ * it. The next update slot holds it, so nothing may be downloaded until the
+ * reboot. Kept outside s because it describes this boot: simpleota_deinit()
+ * must not clear it, and a later simpleota_init() must not read the waiting
+ * update's trial record as a rollback. */
+static volatile bool s_update_waiting;
 
 /* ---------------------------------------------------------------------------
  * Small helpers
@@ -205,7 +215,7 @@ static int http_post_json(const char *path, const char *body, char *resp,
     size_t body_len = strlen(body);
 
     for (int attempt = 0; attempt < 2; ++attempt) {
-        if (attempt > 0) vTaskDelay(pdMS_TO_TICKS(2000));
+        if (attempt > 0) vTaskDelay(sota_ms_to_ticks(2000, configTICK_RATE_HZ));
 
         esp_http_client_config_t cfg = {
             .url = url,
@@ -267,60 +277,90 @@ static int http_post_json(const char *path, const char *body, char *resp,
 }
 
 /* ---------------------------------------------------------------------------
+ * JSON request bodies. String values are escaped, so a value from the server
+ * (a version label, a deployment id) or the integrator can never break the
+ * body the server has to parse.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+    char *buf;
+    size_t cap;
+    size_t len;
+    bool ok; /* false once something did not fit */
+} json_buf_t;
+
+static void jb_raw(json_buf_t *b, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+
+static void jb_raw(json_buf_t *b, const char *fmt, ...) {
+    if (!b->ok) return;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(b->buf + b->len, b->cap - b->len, fmt, ap);
+    va_end(ap);
+    if (n < 0 || (size_t)n >= b->cap - b->len) {
+        b->ok = false;
+        return;
+    }
+    b->len += (size_t)n;
+}
+
+/* Append "key":"value", after a comma unless it is the first member. */
+static void jb_str(json_buf_t *b, const char *key, const char *val) {
+    jb_raw(b, "%s\"%s\":\"", b->len > 1 ? "," : "", key);
+    if (!b->ok) return;
+    if (!sota_json_escape(val, b->buf + b->len, b->cap - b->len)) {
+        b->ok = false;
+        return;
+    }
+    b->len += strlen(b->buf + b->len);
+    jb_raw(b, "\"");
+}
+
+/* ---------------------------------------------------------------------------
  * /api/v1/ota/status/
  * ------------------------------------------------------------------------- */
 
 /*
- * Post one lifecycle event. Success requires BOTH a 2xx and "accepted": true
- * in the body (mirrors Arduino sendStatusFor).
+ * Post one lifecycle event. Returns the HTTP status, or -1 when nothing was
+ * sent or no response came back. The response body is not interpreted:
+ * status events are telemetry and never change what the device does.
  */
-static bool post_status_for(const char *event, const char *reason,
-                            const char *deployment_id, uint32_t build_number) {
+static int post_status_for(const char *event, const char *reason,
+                           const char *deployment_id, uint32_t build_number) {
     if (!deployment_id || !deployment_id[0]) {
         ESP_LOGD(TAG, "status: no deployment context; skipping %s", event);
-        return false;
+        return -1;
     }
     ESP_LOGI(TAG, "status: event=%s build=%" PRIu32 " deployment=%s%s%s", event,
              build_number, deployment_id, reason ? " reason=" : "",
              reason ? reason : "");
 
-    /* Values here are our own identifiers (device id, deployment uuid, event
-     * and reason tokens): no JSON escaping needed, same as the Arduino
-     * client's body construction. */
     char body[384];
-    int n;
-    if (reason) {
-        n = snprintf(body, sizeof(body),
-                     "{\"device_id\":\"%s\",\"deployment_id\":\"%s\","
-                     "\"event\":\"%s\",\"build_number\":%" PRIu32
-                     ",\"reason\":\"%s\"}",
-                     s.device_id, deployment_id, event, build_number, reason);
-    } else {
-        n = snprintf(body, sizeof(body),
-                     "{\"device_id\":\"%s\",\"deployment_id\":\"%s\","
-                     "\"event\":\"%s\",\"build_number\":%" PRIu32 "}",
-                     s.device_id, deployment_id, event, build_number);
-    }
-    if (n <= 0 || (size_t)n >= sizeof(body)) return false;
+    json_buf_t b = {body, sizeof(body), 0, true};
+    jb_raw(&b, "{");
+    jb_str(&b, "device_id", s.device_id);
+    jb_str(&b, "deployment_id", deployment_id);
+    jb_str(&b, "event", event);
+    jb_raw(&b, ",\"build_number\":%" PRIu32, build_number);
+    if (reason) jb_str(&b, "reason", reason);
+    jb_raw(&b, "}");
+    if (!b.ok) return -1;
 
     char resp[256];
-    int status = http_post_json("/api/v1/ota/status/", body, resp, sizeof(resp));
-    if (status < 200 || status >= 300) return false;
-
-    bool accepted = false;
-    sota_json_get_bool(resp, "accepted", &accepted);
-    return accepted;
+    return http_post_json("/api/v1/ota/status/", body, resp, sizeof(resp));
 }
 
 /* Post a status event for the CURRENT offer. */
-static bool post_status(const char *event, const char *reason) {
+static int post_status(const char *event, const char *reason) {
     return post_status_for(event, reason, s.offer.deployment_id,
                            s.offer.build_number);
 }
 
 /*
- * Deferred terminal reports. Both retry across reboots until the server
- * accepts them; the NVS keys they consume are cleared only on acceptance.
+ * Deferred terminal reports (see sota_report.h). Each is cleared once the
+ * server returns any HTTP response. Without one it stays in NVS, so it is
+ * sent again on a later check or after a reboot.
  */
 static void report_rolled_back_if_pending(void) {
     if (s.nvs.trial != 2) return;
@@ -333,17 +373,21 @@ static void report_rolled_back_if_pending(void) {
     }
     const char *reason =
         s.nvs.rb_reason[0] ? s.nvs.rb_reason : "confirm_timeout";
-    if (post_status_for("rolled_back", reason, s.nvs.fail_dep,
-                        s.nvs.fail_build)) {
-        s.nvs.trial = 0;
-        s.nvs.conf_pend = 0;
-        s.nvs.fail_dep[0] = '\0';
-        s.nvs.fail_build = 0;
-        s.nvs.rb_reason[0] = '\0';
-        sota_nvs_clear_trial();
-        sota_nvs_clear_report();
-        ESP_LOGI(TAG, "rolled_back report accepted");
+    if (!sota_report_delivered(post_status_for("rolled_back", reason,
+                                               s.nvs.fail_dep,
+                                               s.nvs.fail_build))) {
+        s.report_failures++;
+        return;
     }
+    s.report_failures = 0;
+    s.nvs.trial = 0;
+    s.nvs.conf_pend = 0;
+    s.nvs.fail_dep[0] = '\0';
+    s.nvs.fail_build = 0;
+    s.nvs.rb_reason[0] = '\0';
+    sota_nvs_clear_trial();
+    sota_nvs_clear_report();
+    ESP_LOGI(TAG, "rolled_back report delivered");
 }
 
 static void report_confirmed_if_pending(void) {
@@ -359,14 +403,19 @@ static void report_confirmed_if_pending(void) {
         sota_nvs_clear_report();
         return;
     }
-    if (post_status_for("confirmed", NULL, s.nvs.fail_dep, s.nvs.fail_build)) {
-        s.nvs.conf_pend = 0;
-        s.nvs.fail_dep[0] = '\0';
-        s.nvs.fail_build = 0;
-        sota_nvs_clear_report();
-        emit_event(SIMPLEOTA_EVENT_CONFIRMED, NULL, s.nvs.build, 0, 0);
-        ESP_LOGI(TAG, "confirmed report accepted");
+    if (!sota_report_delivered(post_status_for("confirmed", NULL,
+                                               s.nvs.fail_dep,
+                                               s.nvs.fail_build))) {
+        s.report_failures++;
+        return;
     }
+    s.report_failures = 0;
+    s.nvs.conf_pend = 0;
+    s.nvs.fail_dep[0] = '\0';
+    s.nvs.fail_build = 0;
+    sota_nvs_clear_report();
+    emit_event(SIMPLEOTA_EVENT_CONFIRMED, NULL, s.nvs.build, 0, 0);
+    ESP_LOGI(TAG, "confirmed report delivered");
 }
 
 /* ---------------------------------------------------------------------------
@@ -472,6 +521,11 @@ static const esp_partition_t *find_app_partition_by_addr(uint32_t addr) {
 #endif
 
 static void process_boot_validation(void) {
+    if (s_update_waiting) {
+        ESP_LOGI(TAG, "build %" PRIu32 " is flashed and waiting for reboot",
+                 s.nvs.build);
+        return;
+    }
     const esp_partition_t *running = esp_ota_get_running_partition();
 
     if (s.nvs.trial == 1) {
@@ -553,46 +607,35 @@ static void process_boot_validation(void) {
  * /api/v1/ota/check/
  * ------------------------------------------------------------------------- */
 
-/* Build the check-in body by concatenation (same approach as the Arduino
- * client): config strings are identifiers the integrator controls and are
- * documented as needing to be JSON-safe; labels_json is embedded verbatim. */
+/* Build the check-in body. String values are escaped; labels_json is
+ * embedded verbatim. */
 static char *build_check_body(void) {
     size_t cap = 1024;
     if (s.labels_json) cap += strlen(s.labels_json);
     char *body = malloc(cap);
     if (!body) return NULL;
 
-    size_t off = (size_t)snprintf(
-        body, cap,
-        "{\"device_id\":\"%s\",\"framework\":\"esp_idf\","
-        "\"chip_family\":\"%s\",\"current_build_number\":%" PRIu32
-        ",\"nvs_schema_version\":%u",
-        s.device_id, s.chip_family, s.nvs.build, (unsigned)s.nvs_schema_version);
-
-#define APPEND(...)                                                       \
-    do {                                                                  \
-        int a = snprintf(body + off, cap - off, __VA_ARGS__);             \
-        if (a < 0 || (size_t)a >= cap - off) {                            \
-            free(body);                                                   \
-            return NULL;                                                  \
-        }                                                                 \
-        off += (size_t)a;                                                 \
-    } while (0)
-
-    if (s.board_id) APPEND(",\"board_id\":\"%s\"", s.board_id);
-    if (s.hardware_revision)
-        APPEND(",\"hardware_revision\":\"%s\"", s.hardware_revision);
-    if (s.partition_profile)
-        APPEND(",\"partition_profile\":\"%s\"", s.partition_profile);
-    if (s.security_mode) APPEND(",\"security_mode\":\"%s\"", s.security_mode);
-    if (s.channel) APPEND(",\"channel\":\"%s\"", s.channel);
+    json_buf_t b = {body, cap, 0, true};
+    jb_raw(&b, "{");
+    jb_str(&b, "device_id", s.device_id);
+    jb_raw(&b, ",\"framework\":\"esp_idf\"");
+    jb_str(&b, "chip_family", s.chip_family);
+    jb_raw(&b, ",\"current_build_number\":%" PRIu32 ",\"nvs_schema_version\":%u",
+           s.nvs.build, (unsigned)s.nvs_schema_version);
+    if (s.board_id) jb_str(&b, "board_id", s.board_id);
+    if (s.hardware_revision) jb_str(&b, "hardware_revision", s.hardware_revision);
+    if (s.partition_profile) jb_str(&b, "partition_profile", s.partition_profile);
+    if (s.security_mode) jb_str(&b, "security_mode", s.security_mode);
+    if (s.channel) jb_str(&b, "channel", s.channel);
     const char *ver = effective_version_label();
-    if (ver) APPEND(",\"version_label\":\"%s\"", ver);
-    if (s.nvs.hash[0]) APPEND(",\"current_hash\":\"%s\"", s.nvs.hash);
-    if (s.labels_json) APPEND(",\"labels\":%s", s.labels_json);
-    APPEND("}");
-#undef APPEND
-
+    if (ver) jb_str(&b, "version_label", ver);
+    if (s.nvs.hash[0]) jb_str(&b, "current_hash", s.nvs.hash);
+    if (s.labels_json) jb_raw(&b, ",\"labels\":%s", s.labels_json);
+    jb_raw(&b, "}");
+    if (!b.ok) {
+        free(body);
+        return NULL;
+    }
     return body;
 }
 
@@ -601,7 +644,7 @@ static bool do_check(void) {
     /* If a prior boot rolled back, try to inform the server FIRST, as its
      * own independent status POST (Arduino ordering): a degraded /check/
      * endpoint must not delay the rollback signal that feeds the server's
-     * auto-pause safety. Best-effort; retried until accepted. */
+     * auto-pause safety. Retried until the server answers. */
     report_rolled_back_if_pending();
 
     char *body = build_check_body();
@@ -790,6 +833,17 @@ static esp_http_client_handle_t open_download(int64_t *content_length,
 
 static void do_apply(void) {
     if (!s.offer.has) return;
+
+    /* The next update slot is the one after the running image. While a
+     * flashed update waits for simpleota_reboot_for_update(), that slot
+     * holds it, and another download would erase it. The offer is fetched
+     * again on a later check. */
+    if (s_update_waiting) {
+        ESP_LOGI(TAG, "update waiting for reboot; not downloading build %" PRIu32,
+                 s.offer.build_number);
+        clear_offer();
+        return;
+    }
 
     /* ---- Transport guard first (Arduino ordering: a non-HTTPS URL is
      * insecure_url regardless of what the signed gate would say) ---------- */
@@ -1015,6 +1069,7 @@ static void do_apply(void) {
         finish_failed("update_end_failed");
         return;
     }
+    s_update_waiting = true;
 
     post_status("flashed", NULL);
 
@@ -1052,7 +1107,6 @@ static void do_apply(void) {
     ESP_LOGI(TAG, "update to build %" PRIu32 " flashed", new_build);
 
     if (s.disable_auto_reboot) {
-        s.pending_reboot = true;
         emit_event(SIMPLEOTA_EVENT_BEFORE_REBOOT, NULL, new_build, 0, 0);
         clear_offer();
         return;
@@ -1061,7 +1115,7 @@ static void do_apply(void) {
     emit_event(SIMPLEOTA_EVENT_BEFORE_REBOOT, NULL, new_build, 0, 0);
     post_status("reboot", NULL);
     clear_offer();
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(sota_ms_to_ticks(100, configTICK_RATE_HZ));
     esp_restart();
 }
 
@@ -1075,7 +1129,7 @@ static void sota_task(void *arg) {
     /* An overdue confirm-timeout (fired between init and start, when
      * there was no task to notify) outranks the polite initial delay. */
     if (s.initial_delay_ms && !s.confirm_timeout_fired) {
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(s.initial_delay_ms));
+        ulTaskNotifyTake(pdTRUE, sota_ms_to_ticks(s.initial_delay_ms, configTICK_RATE_HZ));
     }
 
     while (!s.stop_requested) {
@@ -1090,18 +1144,19 @@ static void sota_task(void *arg) {
                 do_apply(); /* does not return on auto-reboot success */
             }
         } else {
-            ESP_LOGD(TAG, "is_connected() false; skipping check");
+            ESP_LOGD(TAG, "is_connected() false; polling again shortly");
         }
 
-        /* Trial boots and pending terminal reports poll fast so confirm /
-         * rolled_back land promptly; steady state (including the armed-but-
-         * not-yet-rebooted window, trial==1 without a live trial) uses the
-         * normal check interval. */
-        bool fast = s.in_trial || s.nvs.trial == 2 ||
-                    (s.nvs.conf_pend && s.nvs.trial == 0);
-        uint32_t wait_s =
-            fast ? SOTA_TRIAL_RETRY_INTERVAL_S : s.check_interval_s;
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait_s * 1000));
+        /* A trial, and a pending report's first few retries, poll fast so
+         * the confirm and the report land promptly. Otherwise, including
+         * the armed-but-not-yet-rebooted window, the normal interval. */
+        bool report_pending = s.nvs.trial == 2 ||
+                              (s.nvs.conf_pend && s.nvs.trial == 0);
+        uint32_t wait_s = sota_poll_interval_s(
+            connected, s.in_trial, report_pending, s.report_failures,
+            SOTA_TRIAL_RETRY_INTERVAL_S, s.check_interval_s);
+        ulTaskNotifyTake(pdTRUE, sota_ms_to_ticks((uint64_t)wait_s * 1000u,
+                                                  configTICK_RATE_HZ));
     }
 
     s.task = NULL;
@@ -1217,10 +1272,14 @@ esp_err_t simpleota_init(const simpleota_config_t *config) {
     s.initialized = true;
     process_boot_validation();
 
+    /* While a flashed update waits for its reboot, the stored build is the
+     * flashed one (so check-ins do not get it offered again), and the
+     * running image is the one the update replaced. */
     ESP_LOGI(TAG,
              "init: device=%s chip=%s build=%" PRIu32 " keys=%u interval=%" PRIu32
              "s",
-             s.device_id, s.chip_family, s.nvs.build, s.num_keys,
+             s.device_id, s.chip_family,
+             s_update_waiting ? s.nvs.prev_build : s.nvs.build, s.num_keys,
              s.check_interval_s);
     return ESP_OK;
 }
@@ -1241,7 +1300,7 @@ esp_err_t simpleota_stop(void) {
     xTaskNotifyGive(s.task);
     /* The task exits at a safe point (never mid flash write is interrupted;
      * the loop checks the flag between operations). */
-    if (xSemaphoreTake(s.stopped_sem, pdMS_TO_TICKS(60000)) != pdTRUE) {
+    if (xSemaphoreTake(s.stopped_sem, sota_ms_to_ticks(60000, configTICK_RATE_HZ)) != pdTRUE) {
         ESP_LOGW(TAG, "stop: task did not exit within 60 s");
         return ESP_ERR_TIMEOUT;
     }
@@ -1263,12 +1322,35 @@ esp_err_t simpleota_confirm(void) {
     return ESP_OK;
 }
 
-esp_err_t simpleota_reboot_for_update(void) {
-    if (!s.initialized || !s.pending_reboot) return ESP_ERR_INVALID_STATE;
+/* Post the reboot status for the waiting update, then restart. The post
+ * needs a TLS handshake, which does not fit the stack of a typical caller
+ * (the main task's default is 3584 bytes), so it runs on the component task
+ * or on reboot_task(). */
+static void post_reboot_and_restart(void) {
     post_status_for("reboot", NULL, s.nvs.fail_dep, s.nvs.fail_build);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(sota_ms_to_ticks(100, configTICK_RATE_HZ));
     esp_restart();
-    return ESP_OK; /* not reached */
+}
+
+static void reboot_task(void *arg) {
+    (void)arg;
+    post_reboot_and_restart();
+}
+
+esp_err_t simpleota_reboot_for_update(void) {
+    if (!s.initialized || !s_update_waiting) return ESP_ERR_INVALID_STATE;
+    /* Called from event_cb, on the component task: its stack is big enough. */
+    if (s.task && xTaskGetCurrentTaskHandle() == s.task) post_reboot_and_restart();
+    /* Otherwise stop the component task first, so only one TLS session is
+     * open at a time, and post from a task with the component's stack. */
+    simpleota_stop();
+    if (xTaskCreate(reboot_task, "sota_reboot", CONFIG_SIMPLEOTA_TASK_STACK_SIZE,
+                    NULL, CONFIG_SIMPLEOTA_TASK_PRIORITY, NULL) != pdPASS) {
+        ESP_LOGW(TAG, "no memory for the reboot task; restarting without the status post");
+        esp_restart();
+    }
+    for (;;) vTaskDelay(portMAX_DELAY); /* reboot_task restarts the chip */
+    return ESP_OK;                      /* not reached */
 }
 
 bool simpleota_is_trial_boot(void) { return s.in_trial; }

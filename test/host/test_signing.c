@@ -127,7 +127,7 @@ static const char *k_rsa_pem =
 /* SHA-256 vectors: FIPS 180-4 / NIST CAVP. */
 static bool sha256_hex_equals(const uint8_t digest[32], const char *hex) {
     char got[65];
-    for (int i = 0; i < 32; ++i) sprintf(got + 2 * i, "%02x", digest[i]);
+    for (int i = 0; i < 32; ++i) snprintf(got + 2 * i, 3, "%02x", digest[i]);
     got[64] = '\0';
     return strcmp(got, hex) == 0;
 }
@@ -239,6 +239,31 @@ static void run_json_tests(void) {
     CHECK(sota_json_get_string(esc, "v", buf, sizeof(buf)) &&
               strcmp(buf, "a\nb\tc\"d") == 0,
           "json: escape decoding");
+
+    /* Values written into request bodies. */
+    char out[32];
+    CHECK(sota_json_escape("1.2 \"beta\" \\x", out, sizeof(out)) &&
+              strcmp(out, "1.2 \\\"beta\\\" \\\\x") == 0,
+          "json: quotes and backslashes are escaped");
+    CHECK(sota_json_escape("a\nb\rc\td\001e", out, sizeof(out)) &&
+              strcmp(out, "a\\nb\\rc\\tde") == 0,
+          "json: newline, return and tab escaped; other control characters dropped");
+    CHECK(sota_json_escape(NULL, out, sizeof(out)) && out[0] == '\0',
+          "json: NULL escapes to an empty value");
+    CHECK(sota_json_escape("abc", out, 4) && strcmp(out, "abc") == 0,
+          "json: a value that just fits");
+    CHECK(!sota_json_escape("abcd", out, 4) && out[0] == '\0',
+          "json: a value that does not fit fails");
+    CHECK(!sota_json_escape("ab\"", out, 4),
+          "json: an escape that does not fit fails");
+    /* An escaped value reads back as the original. */
+    char doc[96];
+    char val[32];
+    sota_json_escape("v\"1\\2", val, sizeof(val));
+    snprintf(doc, sizeof(doc), "{\"version_label\":\"%s\"}", val);
+    CHECK(sota_json_get_string(doc, "version_label", buf, sizeof(buf)) &&
+              strcmp(buf, "v\"1\\2") == 0,
+          "json: an escaped value round-trips");
 }
 
 int main(void) {

@@ -113,7 +113,9 @@ typedef struct {
     const simpleota_signing_key_t *signing_keys;
     uint8_t num_signing_keys;
 
-    /** Return false to postpone network activity (e.g. Wi-Fi down). NULL = always try. */
+    /** Return false while the link is down (e.g. no IP yet). It is polled
+     *  every second, and the check runs as soon as it returns true.
+     *  NULL = always try. */
     bool (*is_connected)(void *user_ctx);
     /** Lifecycle events; called from the component task. Keep it quick. */
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
@@ -156,7 +158,14 @@ esp_err_t simpleota_check_now(void);
  */
 esp_err_t simpleota_confirm(void);
 
-/** Reboot into a downloaded update when disable_auto_reboot was set. */
+/** Reboot into a downloaded update when disable_auto_reboot was set.
+ *  Until then the component does not download another update, because the
+ *  next update slot holds the one waiting for this reboot.
+ *
+ *  Stops the background task, posts the "reboot" status from a short-lived
+ *  task with CONFIG_SIMPLEOTA_TASK_STACK_SIZE (so any caller's stack is
+ *  enough), and restarts. Does not return unless no update is waiting
+ *  (ESP_ERR_INVALID_STATE). */
 esp_err_t simpleota_reboot_for_update(void);
 
 /** True while running an unconfirmed trial image. */

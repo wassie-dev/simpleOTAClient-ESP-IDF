@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- Check intervals and the initial delay are converted to FreeRTOS ticks in
+  64 bits. Long durations no longer wrap to a much shorter wait.
+- With `disable_auto_reboot`, the component does not download another update
+  while a flashed one waits for `simpleota_reboot_for_update()`. A second
+  download would have overwritten the waiting update.
+- `confirmed` and `rolled_back` reports count as delivered on any HTTP
+  response; the device does not act on the response body. A report with no
+  response is retried three times at 10 s, then at the normal check interval,
+  instead of polling every 10 s indefinitely.
+- While `is_connected()` returns false, it is polled every second and the check
+  runs as soon as it returns true. A check skipped at boot no longer waits a
+  whole check interval.
+- Calling `simpleota_init()` again in the boot that flashed a deferred update
+  keeps the update waiting. It reported a false `rolled_back` and could
+  download another build over the waiting one.
+- `simpleota_reboot_for_update()` posts its status from a task with the
+  component's stack size, after stopping the background task. It posted from
+  the caller's task, and the TLS handshake overflowed the default 3584-byte
+  main task stack.
+- String values in check-in and status requests are JSON-escaped. A release
+  version label containing a quote or backslash made every later check-in
+  invalid JSON, so the device never got another offer.
+
 ## 0.1.0 (released)
 
 Initial release.

@@ -86,9 +86,9 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | `initial_delay_ms` | 0 | Delay before the first check after `simpleota_start()` |
 | `confirm_timeout_s` | 300 | Trial window before automatic rollback |
 | `manual_confirm` | false | true: you call `simpleota_confirm()` after health checks |
-| `disable_auto_reboot` | false | true: you call `simpleota_reboot_for_update()` |
+| `disable_auto_reboot` | false | true: you call `simpleota_reboot_for_update()`. No further update is downloaded until then. |
 | `signing_keys`, `num_signing_keys` | none | Up to 2 pinned Ed25519 public keys (PEM) |
-| `is_connected` | always try | Return false to postpone network activity |
+| `is_connected` | always try | Return false while the link is down. It is polled every second, and the check runs as soon as it returns true |
 | `event_cb`, `user_ctx` | none | Lifecycle events (see `simpleota_event_id_t`) |
 | `cert_pem` | none | Pin a specific CA instead of the certificate bundle |
 | `crt_bundle_attach` | `esp_crt_bundle_attach` | Override the bundle function |
@@ -109,7 +109,10 @@ download_started -> downloaded -> flashed -> validated -> reboot
 Failures report `failed` with a reason token (`checksum_mismatch`,
 `signature_invalid`, `download_stalled`, `update_begin_failed`, ...) that the
 dashboard shows inline on the device row. `confirmed` and `rolled_back` are
-retried across reboots until the server accepts them.
+kept until the server answers, across reboots: any HTTP response counts as
+delivered, and the device does not act on what it says. Without a response the
+report is sent again, first after 10 s (three times), then at the normal check
+interval.
 
 ## Rollback
 

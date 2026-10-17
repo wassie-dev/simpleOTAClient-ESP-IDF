@@ -33,6 +33,14 @@ extern "C" {
 bool sota_json_get_string(const char *json, const char *key, char *out,
                           size_t out_cap);
 
+/**
+ * Write src as the inside of a JSON string: '"' and '\\' are escaped, \n, \r
+ * and \t become escapes, and other control characters are dropped (matching
+ * the Arduino client).
+ * @return true when the result and its terminating NUL fit in out_cap.
+ */
+bool sota_json_escape(const char *src, char *out, size_t out_cap);
+
 /** Extract true/false. */
 bool sota_json_get_bool(const char *json, const char *key, bool *out);
 

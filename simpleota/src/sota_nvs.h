@@ -24,7 +24,7 @@
  *   sota_conf_pend  u8    1 while the trial record's "confirmed" report has
  *                         not been queued yet
  *   sota_rb_reason  str   reason token recorded when a rollback is detected
- *                         ("confirm_timeout" or "boot_failed")
+ *                         (see sota_rollback_reason())
  *   sota_outbox     blob  sota_outbox_t: confirmed / rolled_back reports
  *                         waiting to be sent
  */

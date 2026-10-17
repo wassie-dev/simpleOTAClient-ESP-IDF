@@ -153,8 +153,11 @@ esp_err_t simpleota_check_now(void);
 
 /**
  * Confirm the currently running trial image (manual_confirm mode, called
- * after the app's own health checks pass). Cancels rollback, reports
- * "confirmed". No-op when not in a trial boot.
+ * after the app's own health checks pass). Marks the image valid in the
+ * bootloader, cancels the confirm timer, and queues the "confirmed" report.
+ * Returns ESP_OK, also when there is no trial. Returns the bootloader's
+ * error when it cannot record the image as good; the trial then keeps
+ * running, so call again.
  */
 esp_err_t simpleota_confirm(void);
 

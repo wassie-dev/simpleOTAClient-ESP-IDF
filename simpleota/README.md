@@ -129,12 +129,18 @@ build, reporting `rolled_back` / `confirm_timeout`.
 After any rollback the component restores the previous build number in NVS,
 so the dashboard sees the truth and the server can re-offer fixed builds. The
 `rolled_back` report carries the detected cause: `confirm_timeout` when the
-component's own supervision marked the image invalid, `boot_failed` when the
-bootloader rejected or abandoned the image (crash loop, power loss during
-the trial, image-verification or Secure Boot rejection). Note that even
-without `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, a corrupt image can be
-refused by the bootloader's basic image verification and will then surface
-as `rolled_back` / `boot_failed`.
+component's own supervision marked the image invalid. Otherwise the reset that
+ended the trial: `panic`, `int_wdt`, `task_wdt`, `watchdog`, `brownout`,
+`power_on`, `deep_sleep`, or `reset` (also used when the bootloader refused the
+image, for example on an image-verification or Secure Boot rejection). Even
+without `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, a corrupt image can be refused
+by the bootloader's basic image verification and then surfaces as
+`rolled_back`.
+
+`simpleota_confirm()` marks the image valid in the bootloader first. If that
+fails, it returns the error and the trial keeps running, so call it again.
+While a trial is running, no further update is downloaded: the other slot holds
+the previous image the trial may still return to.
 
 Confirmation is automatic on the first successful check-in. If your
 application has its own health checks, set `.manual_confirm = true` and call

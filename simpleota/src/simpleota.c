@@ -48,6 +48,16 @@
 #include "sota_time.h"
 #include "sota_trial.h"
 
+_Static_assert((int)SOTA_RST_POWERON == (int)ESP_RST_POWERON &&
+                   (int)SOTA_RST_SW == (int)ESP_RST_SW &&
+                   (int)SOTA_RST_PANIC == (int)ESP_RST_PANIC &&
+                   (int)SOTA_RST_INT_WDT == (int)ESP_RST_INT_WDT &&
+                   (int)SOTA_RST_TASK_WDT == (int)ESP_RST_TASK_WDT &&
+                   (int)SOTA_RST_WDT == (int)ESP_RST_WDT &&
+                   (int)SOTA_RST_DEEPSLEEP == (int)ESP_RST_DEEPSLEEP &&
+                   (int)SOTA_RST_BROWNOUT == (int)ESP_RST_BROWNOUT,
+               "sota_trial.h reset codes match esp_reset_reason_t");
+
 static const char *TAG = "simpleota";
 
 #define SOTA_DEFAULT_BASE_URL "https://simpleota.com"
@@ -131,6 +141,9 @@ static sota_state_t s;
  * must not clear it, and a later simpleota_init() must not read the waiting
  * update's trial record as a rollback. */
 static volatile bool s_update_waiting;
+
+/* Guards the in_trial claim in claim_trial_end(). */
+static portMUX_TYPE s_trial_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /* ---------------------------------------------------------------------------
  * Small helpers
@@ -439,17 +452,39 @@ static void stop_confirm_timer(void) {
     }
 }
 
+/* A confirm (from the component task or the app task) and the timeout
+ * rollback can race. Only the first to get here ends the trial. */
+static bool claim_trial_end(void) {
+    portENTER_CRITICAL(&s_trial_mux);
+    bool claimed = s.in_trial;
+    s.in_trial = false;
+    portEXIT_CRITICAL(&s_trial_mux);
+    return claimed;
+}
+
 /* Confirm the running trial image. Called from the component task
- * (auto-confirm) or the app task (simpleota_confirm). */
-static void do_confirm(void) {
-    if (!s.in_trial) return;
-    s.in_trial = false; /* first: disarms a racing timeout callback */
+ * (auto-confirm) or the app task (simpleota_confirm). Returns an error,
+ * with the trial still running, when the bootloader cannot record the
+ * image as good. */
+static esp_err_t do_confirm(void) {
+    /* Claimed first: a timeout that fires meanwhile is skipped by the task. */
+    if (!claim_trial_end()) return ESP_OK;
 
 #if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
-    /* Local operation; cannot fail on network. Seals the bootloader state. */
     esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "mark_app_valid failed: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "mark_app_valid failed: %s; trial continues",
+                 esp_err_to_name(err));
+        portENTER_CRITICAL(&s_trial_mux);
+        s.in_trial = true;
+        portEXIT_CRITICAL(&s_trial_mux);
+        /* A timeout that fired while in_trial was false was skipped by the
+         * task. Hand it back so the rollback still happens. */
+        if (s.confirm_timer && !esp_timer_is_active(s.confirm_timer)) {
+            s.confirm_timeout_fired = true;
+            if (s.task) xTaskNotifyGive(s.task);
+        }
+        return err;
     }
 #endif
     stop_confirm_timer();
@@ -458,23 +493,23 @@ static void do_confirm(void) {
     s.nvs.trial = 0;
     s.nvs.conf_pend = 0;
     ESP_LOGI(TAG, "trial image confirmed (build %" PRIu32 ")", s.nvs.build);
+    return ESP_OK;
 }
 
-/* Execute the confirm-timeout rollback. Runs in the COMPONENT task (the
- * esp_timer callback only notifies; see plan: never run NVS + mark_invalid
- * work on the shared esp_timer task stack). */
-static void do_rollback_from_timeout(void) {
-    if (!s.in_trial) return; /* confirmed in the meantime */
-    s.in_trial = false;
+/* Roll the trial back; reason goes in the rolled_back report. The confirm
+ * timeout runs this in the component task: the esp_timer callback only
+ * notifies, because NVS and mark-invalid work must not run on the shared
+ * esp_timer task stack. */
+static void do_rollback(const char *reason) {
+    if (!claim_trial_end()) return; /* confirmed, or being confirmed */
 
-    ESP_LOGW(TAG, "confirm timeout: rolling back to build %" PRIu32,
+    ESP_LOGW(TAG, "%s: rolling back to build %" PRIu32, reason,
              s.nvs.prev_build);
-    emit_event(SIMPLEOTA_EVENT_ROLLING_BACK, "confirm_timeout",
-               s.nvs.prev_build, 0, 0);
+    emit_event(SIMPLEOTA_EVENT_ROLLING_BACK, reason, s.nvs.prev_build, 0, 0);
 
     /* Restore identity BEFORE rebooting so the next boot reports the old
      * build (unconditionally: prev_build==0 is valid fresh-device state). */
-    sota_nvs_rollback_restore(&s.nvs, "confirm_timeout");
+    sota_nvs_rollback_restore(&s.nvs, reason);
     stop_confirm_timer();
 
 #if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
@@ -548,7 +583,7 @@ static void start_trial(bool staged) {
         /* Cannot supervise the trial: fail safe by rolling back now
          * rather than running unconfirmed forever. */
         ESP_LOGE(TAG, "confirm timer unavailable; rolling back");
-        do_rollback_from_timeout();
+        do_rollback("confirm_timeout");
         return;
     }
     ESP_LOGI(TAG, "trial boot of build %" PRIu32 "; confirm within %" PRIu32 " s",
@@ -578,7 +613,8 @@ static const char *rollback_cause(void) {
         return "confirm_timeout";
     }
 #endif
-    return "boot_failed";
+    /* Otherwise the reset that ended the trial says why. */
+    return sota_rollback_reason((int)esp_reset_reason());
 }
 
 static void process_boot_validation(void) {
@@ -639,6 +675,15 @@ static void process_boot_validation(void) {
         ESP_LOGW(TAG, "dropping a trial record that cannot be checked");
         sota_nvs_drop_trial();
         break;
+    case SOTA_BOOT_SLEPT_IN_TRIAL:
+#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+        s.in_trial = true;
+        do_rollback("deep_sleep"); /* usually does not return */
+        return;
+#else
+        start_trial(facts.staged); /* accepts the image */
+        return;
+#endif
     case SOTA_BOOT_TRIAL:
         start_trial(facts.staged);
         return;
@@ -709,9 +754,9 @@ static bool do_check(void) {
     }
 
     /* Server confirmed reachable: auto-confirm a running trial and send the
-     * confirmed report it queues. */
-    if (s.in_trial && !s.manual_confirm) {
-        do_confirm();
+     * confirmed report it queues. When the confirm fails, the trial goes on
+     * and the next trial poll tries again. */
+    if (s.in_trial && !s.manual_confirm && do_confirm() == ESP_OK && !s.in_trial) {
         send_pending_reports();
     }
 
@@ -882,6 +927,14 @@ static void do_apply(void) {
      * again on a later check. */
     if (s_update_waiting) {
         ESP_LOGI(TAG, "update waiting for reboot; not downloading build %" PRIu32,
+                 s.offer.build_number);
+        clear_offer();
+        return;
+    }
+    /* The other slot holds the previous image, which a running trial may
+     * still need to return to. */
+    if (s.in_trial) {
+        ESP_LOGI(TAG, "running image not confirmed yet; not downloading build %" PRIu32,
                  s.offer.build_number);
         clear_offer();
         return;
@@ -1179,7 +1232,7 @@ static void sota_task(void *arg) {
     while (!s.stop_requested) {
         if (s.confirm_timeout_fired) {
             s.confirm_timeout_fired = false;
-            do_rollback_from_timeout(); /* usually does not return */
+            do_rollback("confirm_timeout"); /* usually does not return */
         }
 
         bool connected = !s.is_connected || s.is_connected(s.user_ctx);
@@ -1361,7 +1414,8 @@ esp_err_t simpleota_check_now(void) {
 esp_err_t simpleota_confirm(void) {
     if (!s.initialized) return ESP_ERR_INVALID_STATE;
     if (!s.in_trial) return ESP_OK;
-    do_confirm();
+    esp_err_t err = do_confirm();
+    if (err != ESP_OK) return err;
     /* Nudge the task so the confirmed report posts promptly. */
     if (s.task) xTaskNotifyGive(s.task);
     return ESP_OK;

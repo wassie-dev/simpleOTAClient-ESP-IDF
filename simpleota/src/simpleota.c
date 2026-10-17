@@ -46,6 +46,7 @@
 #include "sota_sha256.h"
 #include "sota_signing.h"
 #include "sota_time.h"
+#include "sota_trial.h"
 
 static const char *TAG = "simpleota";
 
@@ -114,6 +115,9 @@ typedef struct {
     volatile bool stop_requested;
     volatile bool in_trial;
     volatile bool confirm_timeout_fired;
+    sota_outbox_t outbox;         /* reports waiting to be sent */
+    StaticSemaphore_t outbox_lock_buf;
+    SemaphoreHandle_t outbox_lock; /* guards outbox: the app task and the component task both use it */
     uint32_t report_failures;     /* report sends with no response this boot */
     esp_timer_handle_t confirm_timer;
     bool auth_warned;
@@ -357,65 +361,70 @@ static int post_status(const char *event, const char *reason) {
                            s.offer.build_number);
 }
 
-/*
- * Deferred terminal reports (see sota_report.h). Each is cleared once the
- * server returns any HTTP response. Without one it stays in NVS, so it is
- * sent again on a later check or after a reboot.
- */
-static void report_rolled_back_if_pending(void) {
-    if (s.nvs.trial != 2) return;
-    if (!s.nvs.fail_dep[0]) {
-        /* No context to report about (legacy state); just clear. */
-        s.nvs.trial = 0;
-        sota_nvs_clear_trial();
-        sota_nvs_clear_report();
-        return;
-    }
-    const char *reason =
-        s.nvs.rb_reason[0] ? s.nvs.rb_reason : "confirm_timeout";
-    if (!sota_report_delivered(post_status_for("rolled_back", reason,
-                                               s.nvs.fail_dep,
-                                               s.nvs.fail_build))) {
-        s.report_failures++;
-        return;
-    }
-    s.report_failures = 0;
-    s.nvs.trial = 0;
-    s.nvs.conf_pend = 0;
-    s.nvs.fail_dep[0] = '\0';
-    s.nvs.fail_build = 0;
-    s.nvs.rb_reason[0] = '\0';
-    sota_nvs_clear_trial();
-    sota_nvs_clear_report();
-    ESP_LOGI(TAG, "rolled_back report delivered");
+/* Back on the previous image: its identity becomes the live one again. */
+static void restore_previous_identity(void) {
+    sota_nvs_set_identity(s.nvs.prev_build, s.nvs.prev_hash, s.nvs.prev_version);
+    s.nvs.build = s.nvs.prev_build;
+    strlcpy(s.nvs.hash, s.nvs.prev_hash, sizeof(s.nvs.hash));
+    strlcpy(s.nvs.version, s.nvs.prev_version, sizeof(s.nvs.version));
 }
 
-static void report_confirmed_if_pending(void) {
-    if (!s.nvs.conf_pend) return;
-    /* Only after the trial resolved on THIS image: never while a trial is
-     * running, never while an armed-but-not-yet-booted update is pending
-     * (trial==1 in the deferred-reboot window), never while a rolled_back
-     * report is outstanding (trial==2). Mirrors the Arduino client, which
-     * queues the confirmed report only when boot validation resolves. */
-    if (s.in_trial || s.nvs.trial != 0) return;
-    if (!s.nvs.fail_dep[0]) {
-        s.nvs.conf_pend = 0;
-        sota_nvs_clear_report();
+/* A staged record whose slot switch will not happen. Staging may already
+ * have written the new identity, so the identity of the image that keeps
+ * running, still in RAM, goes back to NVS. */
+static void abandon_staged_record(void) {
+    sota_nvs_set_identity(s.nvs.build, s.nvs.hash, s.nvs.version);
+    sota_nvs_drop_trial();
+}
+
+/*
+ * Deferred terminal reports (see sota_report.h). Once a boot has worked out
+ * what happened to a trial, the report is queued in the outbox and sent at
+ * the start of each check. Each is done once the server returns any HTTP
+ * response; without one it stays queued, in NVS, across reboots.
+ */
+static void queue_report(const char *event, const char *reason,
+                         const char *deployment_id, uint32_t build) {
+    xSemaphoreTake(s.outbox_lock, portMAX_DELAY);
+    bool queued = sota_outbox_push(&s.outbox, event, reason, deployment_id, build);
+    if (queued) sota_nvs_save_outbox(&s.outbox);
+    xSemaphoreGive(s.outbox_lock);
+    if (!queued) {
+        ESP_LOGW(TAG, "%s report has no usable deployment context; dropped", event);
         return;
     }
-    if (!sota_report_delivered(post_status_for("confirmed", NULL,
-                                               s.nvs.fail_dep,
-                                               s.nvs.fail_build))) {
-        s.report_failures++;
-        return;
+    ESP_LOGI(TAG, "%s report queued for build %" PRIu32, event, build);
+}
+
+/* The lock is not held while posting: the report is copied out, and popped
+ * only if a report queued meanwhile has not pushed it out already. */
+static void send_pending_reports(void) {
+    for (;;) {
+        sota_report_t r;
+        xSemaphoreTake(s.outbox_lock, portMAX_DELAY);
+        bool have = s.outbox.count > 0;
+        if (have) r = s.outbox.reports[0];
+        xSemaphoreGive(s.outbox_lock);
+        if (!have) return;
+
+        int status = post_status_for(r.event, r.reason[0] ? r.reason : NULL,
+                                     r.deployment, r.build);
+        if (!sota_report_delivered(status)) {
+            s.report_failures++;
+            return;
+        }
+        s.report_failures = 0;
+
+        xSemaphoreTake(s.outbox_lock, portMAX_DELAY);
+        if (s.outbox.count > 0 && memcmp(&s.outbox.reports[0], &r, sizeof(r)) == 0) {
+            sota_outbox_pop(&s.outbox);
+            sota_nvs_save_outbox(&s.outbox);
+        }
+        xSemaphoreGive(s.outbox_lock);
+        if (strcmp(r.event, "confirmed") == 0) {
+            emit_event(SIMPLEOTA_EVENT_CONFIRMED, NULL, r.build, 0, 0);
+        }
     }
-    s.report_failures = 0;
-    s.nvs.conf_pend = 0;
-    s.nvs.fail_dep[0] = '\0';
-    s.nvs.fail_build = 0;
-    sota_nvs_clear_report();
-    emit_event(SIMPLEOTA_EVENT_CONFIRMED, NULL, s.nvs.build, 0, 0);
-    ESP_LOGI(TAG, "confirmed report delivered");
 }
 
 /* ---------------------------------------------------------------------------
@@ -444,11 +453,11 @@ static void do_confirm(void) {
     }
 #endif
     stop_confirm_timer();
-    sota_nvs_clear_trial();
+    queue_report("confirmed", NULL, s.nvs.fail_dep, s.nvs.fail_build);
+    sota_nvs_drop_trial();
     s.nvs.trial = 0;
+    s.nvs.conf_pend = 0;
     ESP_LOGI(TAG, "trial image confirmed (build %" PRIu32 ")", s.nvs.build);
-    /* The confirmed status POST happens via report_confirmed_if_pending()
-     * on the check path (we already know the server is reachable there). */
 }
 
 /* Execute the confirm-timeout rollback. Runs in the COMPONENT task (the
@@ -520,6 +529,58 @@ static const esp_partition_t *find_app_partition_by_addr(uint32_t addr) {
 }
 #endif
 
+/* First boot of the new image. */
+static void start_trial(bool staged) {
+    /* Power was lost after the slot switch, before sota_staged was removed. */
+    if (staged) sota_nvs_unstage_trial();
+#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    esp_ota_get_state_partition(running, &state);
+    if (state != ESP_OTA_IMG_PENDING_VERIFY) {
+        ESP_LOGW(TAG,
+                 "trial boot but app state is %d (expected "
+                 "PENDING_VERIFY); bootloader rollback may be off",
+                 (int)state);
+    }
+    s.in_trial = true;
+    if (arm_confirm_timer() != ESP_OK) {
+        /* Cannot supervise the trial: fail safe by rolling back now
+         * rather than running unconfirmed forever. */
+        ESP_LOGE(TAG, "confirm timer unavailable; rolling back");
+        do_rollback_from_timeout();
+        return;
+    }
+    ESP_LOGI(TAG, "trial boot of build %" PRIu32 "; confirm within %" PRIu32 " s",
+             s.nvs.build, s.confirm_timeout_s);
+    emit_event(SIMPLEOTA_EVENT_TRIAL_BOOT, NULL, s.nvs.build, 0, 0);
+#else
+    /* Without bootloader rollback nothing can switch back: accept the image
+     * and report it confirmed. */
+    ESP_LOGW(TAG,
+             "running new image without CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE: "
+             "no automatic rollback; the image is accepted.");
+    queue_report("confirmed", NULL, s.nvs.fail_dep, s.nvs.fail_build);
+    sota_nvs_drop_trial();
+    s.nvs.trial = 0;
+    s.nvs.conf_pend = 0;
+#endif
+}
+
+/* Rollback cause for a record that is not on its new image: only the
+ * component's own confirm-timeout path marks that slot INVALID. */
+static const char *rollback_cause(void) {
+#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    const esp_partition_t *new_part = find_app_partition_by_addr(s.nvs.new_part);
+    esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
+    if (new_part && esp_ota_get_state_partition(new_part, &st) == ESP_OK &&
+        st == ESP_OTA_IMG_INVALID) {
+        return "confirm_timeout";
+    }
+#endif
+    return "boot_failed";
+}
+
 static void process_boot_validation(void) {
     if (s_update_waiting) {
         ESP_LOGI(TAG, "build %" PRIu32 " is flashed and waiting for reboot",
@@ -527,80 +588,63 @@ static void process_boot_validation(void) {
         return;
     }
     const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *boot = esp_ota_get_boot_partition();
+    sota_boot_facts_t facts = {
+        .trial = s.nvs.trial,
+        .staged = s.nvs.staged,
+        .new_part = s.nvs.new_part,
+        .running_part = running ? (uint32_t)running->address : 0,
+        .boot_part = boot ? (uint32_t)boot->address : 0,
+        .deep_sleep_wake = esp_reset_reason() == ESP_RST_DEEPSLEEP,
+    };
 
-    if (s.nvs.trial == 1) {
-        if (running && running->address == s.nvs.new_part) {
-            /* First boot of the new image: a trial. */
-#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
-            esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
-            esp_ota_get_state_partition(running, &state);
-            if (state != ESP_OTA_IMG_PENDING_VERIFY) {
-                ESP_LOGW(TAG,
-                         "trial boot but app state is %d (expected "
-                         "PENDING_VERIFY); bootloader rollback may be off",
-                         (int)state);
-            }
-            s.in_trial = true;
-            if (arm_confirm_timer() != ESP_OK) {
-                /* Cannot supervise the trial: fail safe by rolling back now
-                 * rather than running unconfirmed forever. */
-                ESP_LOGE(TAG, "confirm timer unavailable; rolling back");
-                do_rollback_from_timeout();
-                return;
-            }
-            ESP_LOGI(TAG,
-                     "trial boot of build %" PRIu32 "; confirm within %" PRIu32
-                     " s",
-                     s.nvs.build, s.confirm_timeout_s);
-            emit_event(SIMPLEOTA_EVENT_TRIAL_BOOT, NULL, s.nvs.build, 0, 0);
-#else
-            /* Degraded mode: no bootloader rollback available. Confirm on
-             * the first successful check only; log once. */
-            ESP_LOGW(TAG,
-                     "running new image without CONFIG_BOOTLOADER_APP_"
-                     "ROLLBACK_ENABLE: no automatic rollback. The image is "
-                     "treated as accepted; 'confirmed' is reported on the "
-                     "first successful check-in.");
-            sota_nvs_clear_trial();
-            s.nvs.trial = 0;
-#endif
-        } else {
-            /* We are NOT on the image we flashed: the bootloader rolled back
-             * (crash/power loss during trial), the mark-invalid path ran, or
-             * the bootloader's image verification / Secure Boot rejected the
-             * image so the switch never happened. Distinguish the cause where
-             * the otadata state allows it; "boot_failed" covers everything
-             * that was not our own confirm-timeout mark-invalid. */
-            const char *cause = "boot_failed";
-#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
-            const esp_partition_t *new_part =
-                find_app_partition_by_addr(s.nvs.new_part);
-            if (new_part) {
-                esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
-                if (esp_ota_get_state_partition(new_part, &st) == ESP_OK &&
-                    st == ESP_OTA_IMG_INVALID) {
-                    /* Only our own mark-invalid path produces INVALID. */
-                    cause = "confirm_timeout";
-                }
-            }
-#endif
-            ESP_LOGW(TAG,
-                     "rollback detected (%s): running 0x%" PRIx32
-                     " but new image was at 0x%" PRIx32,
-                     cause, running ? (uint32_t)running->address : 0,
-                     s.nvs.new_part);
-            sota_nvs_rollback_restore(&s.nvs, cause);
-            /* Reflect the restore in RAM too. */
-            s.nvs.build = s.nvs.prev_build;
-            strlcpy(s.nvs.hash, s.nvs.prev_hash, sizeof(s.nvs.hash));
-            strlcpy(s.nvs.version, s.nvs.prev_version, sizeof(s.nvs.version));
-            strlcpy(s.nvs.rb_reason, cause, sizeof(s.nvs.rb_reason));
-            s.nvs.trial = 2;
+    switch (sota_classify_boot(&facts)) {
+    case SOTA_BOOT_NONE:
+        /* An earlier release clears sota_trial on confirm and keeps the
+         * report context until the report is sent: that is all that is left. */
+        if (s.nvs.conf_pend) {
+            queue_report("confirmed", NULL, s.nvs.fail_dep, s.nvs.fail_build);
+            sota_nvs_drop_trial();
         }
+        break;
+    case SOTA_BOOT_REPORT_PENDING:
+        queue_report("rolled_back",
+                     s.nvs.rb_reason[0] ? s.nvs.rb_reason : "confirm_timeout",
+                     s.nvs.fail_dep, s.nvs.fail_build);
+        sota_nvs_drop_trial();
+        break;
+    case SOTA_BOOT_ROLLED_BACK: {
+        const char *cause = rollback_cause();
+        ESP_LOGW(TAG, "rollback detected (%s): running 0x%" PRIx32
+                      " but new image was at 0x%" PRIx32,
+                 cause, facts.running_part, s.nvs.new_part);
+        restore_previous_identity();
+        queue_report("rolled_back", cause, s.nvs.fail_dep, s.nvs.fail_build);
+        sota_nvs_drop_trial();
+        break;
     }
-
-    /* trial==2 (rolled_back pending) and conf_pend survive in s.nvs and are
-     * retried by the deferred-report helpers until the server accepts. */
+    case SOTA_BOOT_WAITING:
+        ESP_LOGI(TAG, "build %" PRIu32 " is flashed and waiting for reboot",
+                 s.nvs.fail_build);
+        s_update_waiting = true;
+        return; /* the record stays for the boot that runs the new image */
+    case SOTA_BOOT_ABANDONED:
+        /* The record went in with the new identity before the slot switch
+         * that never happened. */
+        ESP_LOGW(TAG, "update was cut short before its slot switch; dropping it");
+        if (sota_abandon_restores_identity(s.nvs.staged)) restore_previous_identity();
+        sota_nvs_drop_trial();
+        break;
+    case SOTA_BOOT_INCOMPLETE:
+        ESP_LOGW(TAG, "dropping a trial record that cannot be checked");
+        sota_nvs_drop_trial();
+        break;
+    case SOTA_BOOT_TRIAL:
+        start_trial(facts.staged);
+        return;
+    }
+    s.nvs.trial = 0;
+    s.nvs.conf_pend = 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -641,11 +685,9 @@ static char *build_check_body(void) {
 
 /* Returns true when an update offer was stored. */
 static bool do_check(void) {
-    /* If a prior boot rolled back, try to inform the server FIRST, as its
-     * own independent status POST (Arduino ordering): a degraded /check/
-     * endpoint must not delay the rollback signal that feeds the server's
-     * auto-pause safety. Retried until the server answers. */
-    report_rolled_back_if_pending();
+    /* Queued reports go first, as their own status POSTs, so a degraded
+     * /check/ endpoint does not delay them. */
+    send_pending_reports();
 
     char *body = build_check_body();
     if (!body) return false;
@@ -666,12 +708,12 @@ static bool do_check(void) {
         return false;
     }
 
-    /* Server confirmed reachable: auto-confirm a running trial and settle
-     * the deferred confirmed report (Arduino check() ordering). */
+    /* Server confirmed reachable: auto-confirm a running trial and send the
+     * confirmed report it queues. */
     if (s.in_trial && !s.manual_confirm) {
         do_confirm();
+        send_pending_reports();
     }
-    report_confirmed_if_pending();
 
     bool got_offer = false;
     bool available = false;
@@ -1063,31 +1105,33 @@ static void do_apply(void) {
         finish_failed("update_end_failed");
         return;
     }
+    /* ---- Trial record, then the slot switch -------------------------------
+     * The record goes in first, so a power cut can never leave a bootable
+     * new image without one (see sota_trial.h). */
+    err = sota_nvs_stage_trial((uint32_t)dst->address, (uint32_t)running->address,
+                               s.nvs.build, s.nvs.hash, s.nvs.version,
+                               s.offer.deployment_id, s.offer.build_number,
+                               s.offer.checksum, s.offer.version);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to save the trial record: %s", esp_err_to_name(err));
+        abandon_staged_record();
+        finish_failed("state_save_failed");
+        return;
+    }
     err = esp_ota_set_boot_partition(dst);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition: %s", esp_err_to_name(err));
+        abandon_staged_record();
         finish_failed("update_end_failed");
         return;
     }
     s_update_waiting = true;
+    sota_nvs_unstage_trial();
 
     post_status("flashed", NULL);
 
-    /* ---- Arm the trial (single NVS commit) -------------------------------- */
-    err = sota_nvs_arm_trial(
-        s.offer.build_number, s.offer.checksum, s.offer.version,
-        (uint32_t)dst->address, (uint32_t)running->address, s.nvs.build,
-        s.nvs.hash, s.nvs.version, s.offer.deployment_id);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to persist OTA state: %s", esp_err_to_name(err));
-    }
-
-    /* Mirror the armed state into RAM. Without this, the deferred-reboot
-     * mode (disable_auto_reboot) kept reporting the OLD build on the next
-     * check, so the server re-offered the same image and the device
-     * re-downloaded and re-flashed it every interval until the app finally
-     * rebooted; it also stripped the deployment context from the manual
-     * reboot event. (The Arduino client re-reads NVS every check.) */
+    /* Mirror the record into RAM, so the next check reports the new build
+     * and the reboot event names this deployment. */
     s.nvs.prev_part = (uint32_t)running->address;
     s.nvs.new_part = (uint32_t)dst->address;
     s.nvs.prev_build = s.nvs.build;
@@ -1150,8 +1194,7 @@ static void sota_task(void *arg) {
         /* A trial, and a pending report's first few retries, poll fast so
          * the confirm and the report land promptly. Otherwise, including
          * the armed-but-not-yet-rebooted window, the normal interval. */
-        bool report_pending = s.nvs.trial == 2 ||
-                              (s.nvs.conf_pend && s.nvs.trial == 0);
+        bool report_pending = s.outbox.count > 0;
         uint32_t wait_s = sota_poll_interval_s(
             connected, s.in_trial, report_pending, s.report_failures,
             SOTA_TRIAL_RETRY_INTERVAL_S, s.check_interval_s);
@@ -1257,6 +1300,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config) {
         s.crt_bundle_attach = esp_crt_bundle_attach;
 #endif
 
+    s.outbox_lock = xSemaphoreCreateMutexStatic(&s.outbox_lock_buf);
     s.stopped_sem = xSemaphoreCreateBinary();
     if (!s.stopped_sem) {
         simpleota_deinit();
@@ -1270,6 +1314,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config) {
     }
 
     s.initialized = true;
+    sota_nvs_load_outbox(&s.outbox);
     process_boot_validation();
 
     /* While a flashed update waits for its reboot, the stored build is the

@@ -9,6 +9,7 @@ dependencies.lock
 test/host/*.o
 test/host/test_signing
 test/host/test_report
+test/host/test_trial
 
 # Firmware binaries never belong in the repo
 *.bin

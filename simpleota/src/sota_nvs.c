@@ -3,6 +3,7 @@
  */
 
 #include "sota_nvs.h"
+#include "sota_trial.h"
 
 #include <string.h>
 
@@ -30,6 +31,13 @@ static void get_u8(nvs_handle_t h, const char *key, uint8_t *out) {
     if (nvs_get_u8(h, key, out) != ESP_OK) *out = 0;
 }
 
+static void erase_quiet(nvs_handle_t h, const char *key) {
+    esp_err_t err = nvs_erase_key(h, key);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "nvs: erase %s failed: %s", key, esp_err_to_name(err));
+    }
+}
+
 esp_err_t sota_nvs_load(sota_nvs_state_t *out) {
     memset(out, 0, sizeof(*out));
     nvs_handle_t h;
@@ -45,6 +53,7 @@ esp_err_t sota_nvs_load(sota_nvs_state_t *out) {
     get_str(h, "sota_hash", out->hash, sizeof(out->hash));
     get_str(h, "sota_ver", out->version, sizeof(out->version));
     get_u8(h, "sota_trial", &out->trial);
+    get_u8(h, "sota_staged", &out->staged);
     get_u32(h, "sota_new_part", &out->new_part);
     get_u32(h, "sota_prev_part", &out->prev_part);
     get_u32(h, "sota_prev_build", &out->prev_build);
@@ -61,38 +70,69 @@ esp_err_t sota_nvs_load(sota_nvs_state_t *out) {
 
 /* --------------------------------------------------------------------------- */
 
-esp_err_t sota_nvs_arm_trial(uint32_t new_build, const char *new_hash,
-                             const char *new_version, uint32_t new_part,
-                             uint32_t prev_part, uint32_t prev_build,
-                             const char *prev_hash, const char *prev_version,
-                             const char *deployment_id) {
+esp_err_t sota_nvs_stage_trial(uint32_t new_part, uint32_t prev_part,
+                               uint32_t prev_build, const char *prev_hash,
+                               const char *prev_version,
+                               const char *deployment_id, uint32_t new_build,
+                               const char *new_hash, const char *new_version) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
 
-    /* One handle, one commit: either the whole arm lands or none of it. */
+    /* Each set reaches flash on its own, so the order matters: sota_staged
+     * first, sota_trial last. A cut in between leaves staged without a trial,
+     * which boot validation drops. */
     esp_err_t rc = ESP_OK;
 #define DO(x)                       \
     do {                            \
         if (rc == ESP_OK) rc = (x); \
     } while (0)
 
+    DO(nvs_set_u8(h, "sota_staged", SOTA_STAGED_STARTED));
+    DO(nvs_set_u32(h, "sota_new_part", new_part));
     DO(nvs_set_u32(h, "sota_prev_part", prev_part));
     DO(nvs_set_u32(h, "sota_prev_build", prev_build));
     DO(nvs_set_str(h, "sota_prev_hash", prev_hash ? prev_hash : ""));
     DO(nvs_set_str(h, "sota_prev_ver", prev_version ? prev_version : ""));
-
-    DO(nvs_set_u32(h, "sota_build", new_build));
-    DO(nvs_set_str(h, "sota_hash", new_hash ? new_hash : ""));
-    DO(nvs_set_str(h, "sota_ver", new_version ? new_version : ""));
-    DO(nvs_set_u32(h, "sota_new_part", new_part));
-
+    DO(nvs_set_u8(h, "sota_staged", SOTA_STAGED_SNAPSHOT));
     DO(nvs_set_str(h, "sota_fail_dep", deployment_id ? deployment_id : ""));
     DO(nvs_set_u32(h, "sota_fail_build", new_build));
     DO(nvs_set_u8(h, "sota_conf_pend", 1));
-
+    DO(nvs_set_u32(h, "sota_build", new_build));
+    DO(nvs_set_str(h, "sota_hash", new_hash ? new_hash : ""));
+    DO(nvs_set_str(h, "sota_ver", new_version ? new_version : ""));
+    erase_quiet(h, "sota_rb_reason");
     DO(nvs_set_u8(h, "sota_trial", 1));
+    DO(nvs_commit(h));
+#undef DO
+    nvs_close(h);
+    return rc;
+}
 
+esp_err_t sota_nvs_unstage_trial(void) {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    erase_quiet(h, "sota_staged");
+    err = nvs_commit(h);
+    nvs_close(h);
+    return err;
+}
+
+esp_err_t sota_nvs_set_identity(uint32_t build, const char *hash,
+                                const char *version) {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return err;
+    /* Zero / empty are valid: the state before the first update. */
+    esp_err_t rc = ESP_OK;
+#define DO(x)                       \
+    do {                            \
+        if (rc == ESP_OK) rc = (x); \
+    } while (0)
+    DO(nvs_set_u32(h, "sota_build", build));
+    DO(nvs_set_str(h, "sota_hash", hash ? hash : ""));
+    DO(nvs_set_str(h, "sota_ver", version ? version : ""));
     DO(nvs_commit(h));
 #undef DO
     nvs_close(h);
@@ -123,39 +163,49 @@ esp_err_t sota_nvs_rollback_restore(const sota_nvs_state_t *snapshot,
     return rc;
 }
 
-static void erase_quiet(nvs_handle_t h, const char *key) {
-    esp_err_t err = nvs_erase_key(h, key);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGW(TAG, "nvs: erase %s failed: %s", key, esp_err_to_name(err));
-    }
-}
-
-esp_err_t sota_nvs_clear_trial(void) {
+esp_err_t sota_nvs_drop_trial(void) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
     erase_quiet(h, "sota_trial");
+    erase_quiet(h, "sota_staged");
     erase_quiet(h, "sota_new_part");
     erase_quiet(h, "sota_prev_part");
     erase_quiet(h, "sota_prev_build");
     erase_quiet(h, "sota_prev_hash");
     erase_quiet(h, "sota_prev_ver");
     erase_quiet(h, "sota_rb_reason");
-    /* fail_dep / fail_build / conf_pend deliberately kept: they persist
-     * until the server accepts the deferred report. */
+    erase_quiet(h, "sota_fail_dep");
+    erase_quiet(h, "sota_fail_build");
+    erase_quiet(h, "sota_conf_pend");
     err = nvs_commit(h);
     nvs_close(h);
     return err;
 }
 
-esp_err_t sota_nvs_clear_report(void) {
+void sota_nvs_load_outbox(sota_outbox_t *box) {
+    sota_outbox_init(box);
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
+    sota_outbox_t stored;
+    size_t len = sizeof(stored);
+    if (nvs_get_blob(h, "sota_outbox", &stored, &len) == ESP_OK &&
+        len == sizeof(stored) && sota_outbox_valid(&stored)) {
+        *box = stored;
+    }
+    nvs_close(h);
+}
+
+esp_err_t sota_nvs_save_outbox(const sota_outbox_t *box) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
-    erase_quiet(h, "sota_fail_dep");
-    erase_quiet(h, "sota_fail_build");
-    erase_quiet(h, "sota_conf_pend");
-    err = nvs_commit(h);
+    if (box->count == 0) {
+        erase_quiet(h, "sota_outbox");
+    } else {
+        err = nvs_set_blob(h, "sota_outbox", box, sizeof(*box));
+    }
+    if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
 }

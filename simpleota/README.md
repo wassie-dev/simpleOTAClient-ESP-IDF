@@ -108,8 +108,10 @@ download_started -> downloaded -> flashed -> validated -> reboot
 
 Failures report `failed` with a reason token (`checksum_mismatch`,
 `signature_invalid`, `download_stalled`, `update_begin_failed`, ...) that the
-dashboard shows inline on the device row. `confirmed` and `rolled_back` are
-kept until the server answers, across reboots: any HTTP response counts as
+dashboard shows inline on the device row. Once a boot has worked out what
+happened to a trial, its `confirmed` or `rolled_back` report goes to an outbox
+in NVS (two slots, oldest dropped first) and never holds up an update. Reports
+are kept until the server answers, across reboots: any HTTP response counts as
 delivered, and the device does not act on what it says. Without a response the
 report is sent again, first after 10 s (three times), then at the normal check
 interval.

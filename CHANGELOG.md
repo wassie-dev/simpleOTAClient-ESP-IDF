@@ -24,6 +24,16 @@
 - String values in check-in and status requests are JSON-escaped. A release
   version label containing a quote or backslash made every later check-in
   invalid JSON, so the device never got another offer.
+- The trial record, including the new build's identity, is saved before the
+  boot slot switches, marked by `sota_staged` until the switch happens. A power
+  cut during an update no longer leaves the new image running without a trial.
+  The record keeps the key layout of 0.1.0, so updates from 0.1.0 and rollbacks
+  to it behave as before.
+- `confirmed` and `rolled_back` reports go to an outbox in NVS (two slots,
+  oldest dropped first) once the boot has worked them out, and the trial keys
+  are cleared. A pending report never holds up an update.
+- A deep-sleep wake that resumes the old image while a flashed update waits for
+  its reboot keeps the update waiting instead of reporting it as rolled back.
 
 ## 0.1.0 (released)
 

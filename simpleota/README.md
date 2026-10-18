@@ -51,7 +51,9 @@ idf.py add-dependency "xanderwasserman/simpleota"
 #include "simpleota.h"
 
 void app_main(void) {
-    // nvs_flash_init() + your Wi-Fi bring-up first...
+    // nvs_flash_init(), then bring up Wi-Fi (or Ethernet) and wait for an
+    // IP before simpleota_start(). A check that runs without one fails, and
+    // the next one is check_interval_s (an hour by default) later.
 
     simpleota_config_t cfg = {
         .token = "YOUR_PROJECT_TOKEN",   // Project -> API tokens (device scope)
@@ -64,6 +66,10 @@ void app_main(void) {
 That is a complete integration: the component starts a background task that
 checks hourly, flashes offered builds, reboots into them as a supervised
 trial, and confirms them once the new image completes a successful check-in.
+`esp_wifi_connect()` returns before the IP arrives, so if your bring-up does
+not wait for one, set the optional `.is_connected` callback to return false
+until it does: each check then waits for the link, as
+[examples/basic](../examples/basic/main/main.c) does.
 See [examples/basic](../examples/basic) for a full project including Wi-Fi
 bring-up, and [examples/signed](../examples/signed) for signed firmware.
 

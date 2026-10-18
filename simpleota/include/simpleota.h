@@ -11,7 +11,7 @@
  * the component may talk to the network via the optional is_connected
  * callback; the component does the rest from its own background task.
  *
- * Quick start:
+ * Quick start (after Wi-Fi or Ethernet has an IP):
  *
  *     simpleota_config_t cfg = {
  *         .token = "sota_pk_...",       // project (or device) token
@@ -103,7 +103,8 @@ typedef struct {
     const char *version_label;     /**< NULL = last persisted value from NVS. */
     uint8_t nvs_schema_version;    /**< 0 => 1. */
     uint32_t check_interval_s;     /**< 0 => 3600. */
-    uint32_t initial_delay_ms;     /**< Delay before the first check after start(). */
+    uint32_t initial_delay_ms;     /**< Delay before the first check after start().
+                                        Not a wait for the IP; see is_connected. */
     uint32_t confirm_timeout_s;    /**< 0 => 300. Clamped to [10, 86400]. */
     bool manual_confirm;           /**< true: app must call simpleota_confirm(). */
     bool disable_auto_reboot;      /**< true: app calls simpleota_reboot_for_update(). */
@@ -115,7 +116,8 @@ typedef struct {
 
     /** Return false while the link is down (e.g. no IP yet). It is polled
      *  every second, and the check runs as soon as it returns true.
-     *  NULL = always try. */
+     *  NULL = always try: start() must then come after the IP arrives, or
+     *  the first check fails and the next is check_interval_s later. */
     bool (*is_connected)(void *user_ctx);
     /** Lifecycle events; called from the component task. Keep it quick. */
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);

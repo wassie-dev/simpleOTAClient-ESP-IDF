@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.1
+
+The component's code is unchanged; this release updates the examples, the
+documentation and CI.
+
+### Upgrading
+
+- Existing projects and devices are not affected: a device keeps the
+  partition table it was flashed with. To move a project to the new table,
+  see "Changing the layout" in the README.
+
+### Changed
+
+- The examples use a partition table with two 1700 KB OTA slots and no
+  factory partition (`partitions.csv`), the table that
+  `CONFIG_PARTITION_TABLE_TWO_OTA_LARGE` selects on ESP-IDF 5.4 and later.
+  With the 1 MB slots of `CONFIG_PARTITION_TABLE_TWO_OTA`, the ESP32-C6
+  examples left less than 5% of a slot free; with this table they leave more
+  than 40%.
+- The README recommends this table, explains how to change a device's layout
+  safely, and lists the component's flash and RAM footprint.
+- The README quick start and `simpleota.h` say to wait for an IP before
+  `simpleota_start()`, or to set `.is_connected` until there is one.
+- The hardware-testing guide erases the flash before switching partition
+  layouts, and describes what `idf.py flash` writes.
+- CI fails when an example leaves less than 20% of its app slot free, and
+  builds the signed example on the ESP32-C6.
+
 ## 0.2.0
 
 ### Upgrading

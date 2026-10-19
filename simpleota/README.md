@@ -31,16 +31,23 @@ idf.py add-dependency "xanderwasserman/simpleota"
 - ESP-IDF **v5.1 or newer** (tested through IDF 6.x). Targets: esp32, esp32s2,
   esp32s3, esp32c3, esp32c6, esp32h2.
 - A partition table with **two OTA app slots**, and (strongly recommended)
-  bootloader rollback. In your project's `sdkconfig.defaults`:
+  bootloader rollback. With the `partitions.csv` from
+  [Partition table](#partition-table) in your project directory, put this in
+  your project's `sdkconfig.defaults`:
 
   ```
-  CONFIG_PARTITION_TABLE_TWO_OTA=y
+  CONFIG_PARTITION_TABLE_CUSTOM=y
+  CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
   CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
   CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
   ```
 
-  Both settings live in the bootloader / partition table and must ship with
-  the **first serial flash**; they cannot be enabled later over OTA. Without
+  ESP-IDF reads `sdkconfig.defaults` only when it creates `sdkconfig`: in a
+  project that already has one, delete it or set the options with
+  `idf.py menuconfig`.
+
+  The partition table and the bootloader settings ship with the **first
+  serial flash**; they cannot be changed later over OTA. Without
   `BOOTLOADER_APP_ROLLBACK_ENABLE` the component still updates firmware, but
   without automatic rollback: a new image is accepted on its first boot and
   reported `confirmed`.
@@ -173,6 +180,80 @@ the previous image the trial may still return to.
 Confirmation is automatic on the first successful check-in. If your
 application has its own health checks, set `.manual_confirm = true` and call
 `simpleota_confirm()` once they pass.
+
+## Partition table
+
+The examples ship this table as `partitions.csv`:
+
+```
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,     ,        0x6000,
+otadata,  data, ota,     ,        0x2000,
+phy_init, data, phy,     ,        0x1000,
+ota_0,    app,  ota_0,   ,        1700K,
+ota_1,    app,  ota_1,   ,        1700K,
+```
+
+It needs 4 MB of flash. Each OTA slot holds an app image of up to 1700 KB,
+and 540 KB is free after `ota_1` for your own data partitions. There is no
+factory partition: a serial flash boots `ota_0`, and updates alternate between
+`ota_0` and `ota_1`. On ESP-IDF 5.4 and later,
+`CONFIG_PARTITION_TABLE_TWO_OTA_LARGE=y` selects the same table.
+
+ESP-IDF's `CONFIG_PARTITION_TABLE_TWO_OTA` also works. It adds a 1 MB factory
+partition, which a serial flash boots and updates never write: the first
+update installs into `ota_0`, and a rollback from it returns to the factory
+image. Its two OTA slots are 1 MB each, which leaves little room for
+application code on some targets (see [Footprint](#footprint)).
+
+### Changing the layout
+
+A device keeps the partition table it was flashed with; the table cannot
+change over OTA. A new layout reaches a device only through a serial flash.
+
+- Erase the flash with `idf.py erase-flash` before flashing a board whose
+  current firmware uses a different layout, such as an Arduino sketch or an
+  older table. `idf.py flash` writes the bootloader, the partition table, the
+  OTA data and the app, and leaves the rest of the flash as it is. Without the
+  erase, the new NVS partition starts with whatever the old layout left there,
+  including the build number the component stored, so the device goes on
+  reporting that build while it runs the firmware you flashed. After the erase
+  it reports build 0 until its first update.
+- Builds for devices already in the field must fit their app slot. An image
+  larger than the slot is refused and the device stays on its build: the
+  update fails with `update_begin_failed`, or with `update_write_failed` when
+  the image size is not known in advance. Only the inactive slot is ever
+  written.
+- When a fleet has devices with different layouts, set `partition_profile` on
+  each device to name its layout, and give each upload the profile it was
+  built for. The server offers an upload only to devices that report the same
+  profile. An upload without a profile is offered to every device, and so is
+  any upload to a device that reports none.
+
+## Footprint
+
+Measured with ESP-IDF 5.3 and size optimization
+(`CONFIG_COMPILER_OPTIMIZATION_SIZE=y`), building the `basic` example against
+the same project without SimpleOTA:
+
+| Target | Added to an app that already uses HTTPS, NVS and OTA | Added to a Wi-Fi-only app | `basic` example: free in a 1700 KB slot | `basic` example: free in a 1 MB slot |
+|---|---|---|---|---|
+| ESP32 | 31 KB flash, 1.5 KB RAM | 206 KB flash, 3.0 KB RAM | 48% | 14% |
+| ESP32-S3 | 31 KB flash, 1.5 KB RAM | 211 KB flash, 3.0 KB RAM | 48% | 14% |
+| ESP32-C6 | 34 KB flash, 1.5 KB RAM | 251 KB flash, 3.0 KB RAM | 42% | 4% |
+
+RAM is static RAM (`.data` and `.bss`).
+
+The component itself (`libsimpleota.a`, including the vendored Ed25519 and
+SHA-256 code) is about 26 KB of flash. Most of the flash added to a Wi-Fi-only
+app is the HTTPS stack (mbedTLS, `esp_http_client` and the certificate
+bundle), which an app that already makes HTTPS requests has anyway.
+
+At run time the component's task uses a stack of
+`CONFIG_SIMPLEOTA_TASK_STACK_SIZE` bytes (12288 by default). A check
+allocates a 4 KB response buffer and a download a buffer of
+`CONFIG_SIMPLEOTA_DOWNLOAD_CHUNK` bytes (4096 by default), and each request
+holds the HTTP client's buffers and a TLS session on the heap while it runs.
 
 ## Signed firmware
 

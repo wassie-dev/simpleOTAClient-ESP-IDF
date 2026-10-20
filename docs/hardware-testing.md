@@ -107,15 +107,25 @@ You should see something like `/dev/cu.usbserial-1420` or
 
 ## 6. Build, flash, and watch the logs
 
+If the board last ran firmware with a different partition table, such as an
+Arduino sketch, erase it first so its NVS partition starts empty:
+
+```sh
+idf.py -p /dev/cu.usbserial-1420 erase-flash
+```
+
+Then build and flash:
+
 ```sh
 idf.py -p /dev/cu.usbserial-1420 flash monitor
 ```
 
 (Replace the port with whatever step 5 showed.) This compiles everything
-(first build takes a few minutes; later ones are fast), erases and writes
-the whole flash on your board, reboots it, and streams the live serial log
-to your terminal. **This is the step that replaces any existing Arduino
-firmware**, which is expected and reversible (see the bottom of this guide).
+(first build takes a few minutes; later ones are fast), writes the
+bootloader, partition table, OTA data and app to your board, reboots it, and
+streams the live serial log to your terminal. **This is the step that
+replaces any existing Arduino firmware**, which is expected and reversible
+(see the bottom of this guide).
 
 You should see boot messages, then something like:
 
@@ -208,7 +218,9 @@ confirms: it should wake on the known-good build with `rolled_back` /
 
 Reflash your Arduino sketch the normal way (Arduino IDE or arduino-cli). It
 overwrites the ESP-IDF bootloader/partitions/app the same way this guide
-overwrote Arduino. Nothing about the chip is permanently changed by either
+overwrote Arduino. For that first upload, set **Tools > Erase All Flash Before
+Sketch Upload** to **Enabled**, so the Arduino layout starts with an empty NVS
+partition. Nothing about the chip is permanently changed by either
 toolchain.
 
 ## Quick reference
@@ -219,6 +231,7 @@ toolchain.
 | `idf.py set-target esp32` | Pick your chip (once per project folder) |
 | `idf.py menuconfig` | Configure Wi-Fi + token |
 | `idf.py build` | Compile only |
+| `idf.py -p /dev/cu.usbserial-XXXX erase-flash` | Erase the whole flash (before switching partition layouts) |
 | `idf.py -p /dev/cu.usbserial-XXXX flash monitor` | Flash + watch logs |
 | `idf.py monitor` | Reattach the log viewer (board already flashed) |
 | `Ctrl + ]` | Exit the log viewer |

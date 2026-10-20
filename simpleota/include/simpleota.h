@@ -19,16 +19,14 @@
  *     ESP_ERROR_CHECK(simpleota_init(&cfg));
  *     ESP_ERROR_CHECK(simpleota_start());
  *
- * Rollback-aware trial installs additionally require, in the PROJECT's
- * sdkconfig (both must ship with the first serial flash; they cannot be
- * enabled over OTA):
+ * The PROJECT needs a partition table with two OTA app slots (README.md
+ * has the recommended one), and rollback-aware trial installs need
  *
- *     CONFIG_PARTITION_TABLE_TWO_OTA=y
  *     CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
  *
- * Without them the component still updates firmware, but without automatic
- * rollback: images are confirmed on the first successful check-in after
- * boot.
+ * Both ship with the first serial flash and cannot change over OTA. Without
+ * bootloader rollback the component still updates firmware, but a new image
+ * is accepted on its first boot and reported "confirmed".
  *
  * The component is a process-wide singleton (one instance per device);
  * a second simpleota_init() returns ESP_ERR_INVALID_STATE.

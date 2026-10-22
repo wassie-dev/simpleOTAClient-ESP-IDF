@@ -22,6 +22,8 @@ Signing here protects the delivery path. It is not Secure Boot. They stack if yo
 
 ## Install
 
+Starting a new project? [simpleOTA-starter-esp-idf](https://github.com/wassie-dev/simpleOTA-starter-esp-idf) is a template repo with a working ESP-IDF app and a GitHub Actions release workflow already set up.
+
 ```sh
 idf.py add-dependency "xanderwasserman/simpleota"
 ```

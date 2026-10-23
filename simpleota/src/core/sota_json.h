@@ -25,8 +25,8 @@ extern "C" {
 #endif
 
 /**
- * Extract a string value. Handles \n, \t, \r and pass-through of other
- * backslash escapes.
+ * Extract a string value. Decodes \n, \t and \r; any other backslash
+ * escape yields the character after it (\uXXXX is not decoded).
  * @return true only when the key exists, is a string, AND the decoded value
  *         fits in out_cap-1 bytes (an oversized value fails loudly rather
  *         than truncating, so a clipped URL can never half-work).

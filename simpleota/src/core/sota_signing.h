@@ -41,7 +41,7 @@ typedef enum {
  * Decide how to handle a (possibly signed) offer, from device policy and the
  * offer's own claims. Pure and host-testable.
  *
- * The anti-downgrade guarantee lives here: a device that declares signed
+ * The guard against stripped signatures lives here: a device that declares signed
  * mode AND has a key pinned MUST see a usable signature, no matter what the
  * offer claims. A compromised server or MITM that strips the security_mode /
  * signature fields from the response therefore cannot silently downgrade the
@@ -85,8 +85,8 @@ bool sota_decode_signature_b64(const char *b64, uint8_t out[64]);
  * Runs one Monocypher incremental check context per candidate key; the
  * signature is accepted if it verifies under ANY candidate. Contexts are a
  * few hundred bytes each (embedded SHA-512 state); the whole struct is
- * ~1.5 KB, so allocate it on the heap or in static state, not on a task
- * stack next to the download buffer.
+ * about 700 bytes, so the apply path allocates it on the heap rather than
+ * on a task stack next to the download buffer.
  *
  * Usage: sota_verifier_begin() once, sota_verifier_update() per downloaded
  * chunk, sota_verifier_final() once.

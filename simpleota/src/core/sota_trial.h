@@ -41,11 +41,6 @@ typedef enum {
     SOTA_BOOT_ROLLBACK_CUT,   /**< A rollback was saved but its slot switch never happened. */
 } sota_boot_outcome_t;
 
-/**
- * sota_staged values. The apply path writes STARTED first, then the
- * previous image's identity, then SNAPSHOT, and only then overwrites the
- * live identity with the new build's.
- */
 /** sota_trial values. */
 enum {
     SOTA_TRIAL_STAGED = 1, /**< The new image has not booted yet. */
@@ -53,6 +48,11 @@ enum {
     SOTA_TRIAL_BOOTED = 3, /**< The new image booted once; any reset ends the trial. */
 };
 
+/**
+ * sota_staged values. The apply path writes STARTED first, then the
+ * previous image's identity, then SNAPSHOT, and only then overwrites the
+ * live identity with the new build's.
+ */
 enum {
     SOTA_STAGED_STARTED = 1,
     SOTA_STAGED_SNAPSHOT = 2,
@@ -131,7 +131,7 @@ static inline bool sota_abandon_restores_identity(uint8_t staged)
  * Arduino's verifyRollbackLater(): keep an image the bootloader still has
  * on probation (pending verify) only when it is a SimpleOTA trial. Any
  * other pending image, such as one written by ArduinoOTA, is left for the
- * core to accept.
+ * Arduino core to accept.
  */
 static inline bool sota_hold_pending_image(bool image_pending, sota_boot_outcome_t outcome)
 {

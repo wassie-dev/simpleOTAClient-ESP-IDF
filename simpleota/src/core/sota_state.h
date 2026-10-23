@@ -4,8 +4,8 @@
  * These keys are a contract with every release in the field:
  * docs/NVS_CONTRACT.md has the rules for changing them.
  *
- * Keys in the store (sota_kv.h). Names and meanings are the ones every
- * earlier release of both clients reads and writes:
+ * Keys in the store (sota_kv.h). A key keeps its name and meaning in every
+ * release; docs/NVS_CONTRACT.md has the release that first wrote each one:
  *
  *   sota_build      u32   build number of the live (reported) image
  *   sota_hash       str   sha256 hex of the live image
@@ -94,8 +94,8 @@ bool sota_state_stage_trial(const sota_identity_t *prev, const sota_identity_t *
 bool sota_state_unstage(void);
 
 /**
- * An update applied without a trial (rollback disabled, or no way to roll
- * back): the new identity goes live, and the next boot queues its
+ * An update applied without a trial (rollback disabled): the new identity
+ * goes live, and the next boot queues its
  * confirmed report.
  */
 bool sota_state_accept_update(const sota_identity_t *next, const char *deployment);

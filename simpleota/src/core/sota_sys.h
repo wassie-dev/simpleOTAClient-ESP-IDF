@@ -46,7 +46,8 @@ bool sota_sys_wdt_arm(uint32_t confirm_s, uint32_t floor_s);
 /** Stop the watchdog if sota_sys_wdt_arm() started it. */
 void sota_sys_wdt_disarm(void);
 
-/** On a boot that is not a trial: stop a watchdog a reset left running. */
+/** At boot, before a trial may arm it again: stop a watchdog a reset left
+ *  running. */
 void sota_sys_wdt_quiesce(void);
 
 SOTA_NORETURN void sota_sys_restart(void);

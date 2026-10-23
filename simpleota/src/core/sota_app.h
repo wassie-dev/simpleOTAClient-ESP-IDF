@@ -21,7 +21,7 @@ typedef enum {
     SOTA_EVENT_UPDATE_AVAILABLE,  /**< An update was offered. */
     SOTA_EVENT_DOWNLOAD_PROGRESS, /**< done / total advanced. */
     SOTA_EVENT_UPDATE_FAILED,     /**< The update was dropped; reason says why. */
-    SOTA_EVENT_BEFORE_REBOOT,     /**< Flashed and verified; the reboot comes next. */
+    SOTA_EVENT_BEFORE_REBOOT,     /**< Flashed and verified; it runs from the next reboot. */
     SOTA_EVENT_TRIAL_BOOT,        /**< Running an image that is not confirmed yet. */
     SOTA_EVENT_CONFIRMED,         /**< The trial image's confirmed report was delivered. */
     SOTA_EVENT_ROLLING_BACK,      /**< The trial failed; the previous image starts next. */
@@ -32,7 +32,8 @@ typedef struct {
     const char *reason; /**< A reason token or server status, or NULL. */
     uint32_t build;     /**< The build the event is about, 0 when none. */
     size_t done;        /**< DOWNLOAD_PROGRESS: bytes written. */
-    size_t total;       /**< DOWNLOAD_PROGRESS: bytes expected, 0 when unknown. */
+    size_t total;       /**< DOWNLOAD_PROGRESS: bytes expected, 0 when unknown.
+                             UPDATE_AVAILABLE: the offer's size, 0 when unknown. */
 } sota_event_t;
 
 void sota_app_event(void *user, const sota_event_t *event);

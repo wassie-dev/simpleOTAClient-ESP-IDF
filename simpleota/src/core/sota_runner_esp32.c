@@ -71,7 +71,7 @@ void sota_runner_wake(sota_runner_t *r)
     }
     if (xTaskCreate(service, "sota_rollback", r->stack_size, r->engine, r->priority, NULL) !=
         pdPASS) {
-        SOTA_LOGE("no memory for the rollback task; restarting into the trial again");
+        SOTA_LOGE("no memory for the rollback task; restarting, which rolls back");
         sota_sys_restart();
     }
 }

@@ -36,7 +36,8 @@ static inline bool sota_report_delivered(int http_status)
  *                  does not, it is polled every SOTA_CONNECT_POLL_S, so the
  *                  check runs as soon as the network is up instead of a
  *                  whole check interval later.
- * in_trial:        a trial is waiting for its first successful check-in.
+ * in_trial:        a trial is running, so checks come every quick_s until it
+ *                  is confirmed or rolled back.
  * report_pending:  a confirmed or rolled_back report is waiting to be sent.
  * report_failures: sends of that report that got no response this boot.
  */

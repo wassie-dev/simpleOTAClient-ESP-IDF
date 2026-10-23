@@ -62,7 +62,7 @@ sota_signed_gate_t sota_signed_gate(bool device_reports_signed, uint8_t num_keys
     /* Enforcing: the device declares signed mode and can actually verify.
      * A signature is then mandatory regardless of what the offer claims,
      * so a stripped-signature response fails closed rather than
-     * downgrading. */
+     * falling back to checksum-only. */
     if (device_reports_signed && num_keys > 0) {
         return offer_has_signature ? SOTA_GATE_VERIFY : SOTA_GATE_FAIL_CLOSED;
     }

@@ -1,5 +1,6 @@
 /**
- * sota_state.c - see header for the keys and the write order.
+ * sota_state.c - see the header and docs/NVS_CONTRACT.md for the keys and
+ * the write order.
  */
 
 #include "sota_state.h"

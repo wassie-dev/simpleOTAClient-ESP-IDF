@@ -3,8 +3,8 @@
  * check-ins, applying an update, the trial and its confirm or rollback,
  * and the deferred reports.
  *
- * The adapter owns a sota_engine_t (Arduino may have several, ESP-IDF has
- * one) and calls these functions. The engine reaches the platform only
+ * The adapter owns a sota_engine_t and calls these functions. A device runs
+ * one engine at a time (sota_engine_init()). The engine reaches the platform only
  * through the link-time interfaces: sota_kv.h, sota_image.h, sota_boot.h
  * and sota_sys.h from the port, sota_net.h and sota_app.h from the adapter.
  *
@@ -31,14 +31,15 @@ extern "C" {
 #define SOTA_DEFAULT_CHECK_INTERVAL_S 3600u
 #define SOTA_DEFAULT_CONFIRM_TIMEOUT_S 300u
 #define SOTA_DEFAULT_HTTP_TIMEOUT_MS 15000u
-/** Seconds between check-ins while a trial waits for its first one. */
+/** Seconds between check-ins during a trial, and while a report waits for
+ *  one of its quick retries. */
 #define SOTA_TRIAL_RETRY_INTERVAL_S 10u
 
 /** apply() results. The values are the Arduino client's OTAResult. */
 typedef enum {
     SOTA_APPLY_OK = 0,             /**< Flashed; the reboot is next. */
     SOTA_APPLY_CHECKSUM_FAIL = 1,  /**< The download did not match its sha256. */
-    SOTA_APPLY_FLASH_FAIL = 2,     /**< Network, flash or state write failure. */
+    SOTA_APPLY_FLASH_FAIL = 2,     /**< Network, URL, flash or state write failure. */
     SOTA_APPLY_NO_OFFER = 3,       /**< No offer from a successful check. */
     SOTA_APPLY_SIGNATURE_FAIL = 4, /**< Required signature missing or wrong. */
     SOTA_APPLY_REBOOT_PENDING = 5, /**< A flashed update waits for its reboot. */
@@ -63,7 +64,7 @@ typedef struct {
     uint32_t check_interval_s;  /**< 0: the default. */
     uint32_t confirm_timeout_s; /**< 0: the default. Clamped to [10, 86400]. */
     uint32_t http_timeout_ms;   /**< The adapter's; sizes the watchdog margin. */
-    bool auto_confirm;          /**< A trial is confirmed by its first check-in. */
+    bool auto_confirm;          /**< A trial is confirmed by its first successful check-in. */
     bool auto_reboot;           /**< apply() restarts after a successful flash. */
     bool rollback;              /**< Run new images as trials. */
     void *user;                 /**< Passed to sota_net.h and sota_app.h. */

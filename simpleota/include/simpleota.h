@@ -63,7 +63,7 @@ extern "C" {
 typedef enum {
     SIMPLEOTA_OK = 0,             /**< Flashed and verified; the reboot is next. */
     SIMPLEOTA_CHECKSUM_FAIL = 1,  /**< The download did not match its SHA-256. */
-    SIMPLEOTA_FLASH_FAIL = 2,     /**< Network, flash or state write failure. */
+    SIMPLEOTA_FLASH_FAIL = 2,     /**< Network, URL, flash or state write failure. */
     SIMPLEOTA_NO_OFFER = 3,       /**< No offer from a successful simpleota_check(). */
     SIMPLEOTA_SIGNATURE_FAIL = 4, /**< Required signature missing or wrong. */
     SIMPLEOTA_REBOOT_PENDING = 5, /**< A flashed update waits for
@@ -74,11 +74,12 @@ typedef enum {
                                        one; refused (anti-rollback). */
 } simpleota_result_t;
 
-/** Events delivered to the config's event_cb (from the component task). */
+/** Events delivered to the config's event_cb. */
 typedef enum {
     SIMPLEOTA_EVENT_CHECK_DONE,        /**< A check completed; no update offered.
                                             reason: the server's status. */
-    SIMPLEOTA_EVENT_UPDATE_AVAILABLE,  /**< An update was offered; download starts next. */
+    SIMPLEOTA_EVENT_UPDATE_AVAILABLE,  /**< An update was offered. The managed task
+                                            downloads it next, unless a trial runs. */
     SIMPLEOTA_EVENT_DOWNLOAD_PROGRESS, /**< bytes_done / bytes_total advanced. */
     SIMPLEOTA_EVENT_UPDATE_FAILED,     /**< Update aborted; reason carries the token. */
     SIMPLEOTA_EVENT_BEFORE_REBOOT,     /**< Flashed + verified. Restart is imminent,
@@ -94,10 +95,12 @@ typedef enum {
 
 typedef struct {
     simpleota_event_id_t id;
-    const char *reason;   /**< Failure reason token (e.g. "checksum_mismatch") or NULL. */
+    const char *reason;   /**< A reason token (e.g. "checksum_mismatch"), the
+                               server's status for CHECK_DONE, or NULL. */
     uint32_t build_number;/**< Build number the event refers to (0 if n/a). */
     size_t bytes_done;    /**< DOWNLOAD_PROGRESS only. */
-    size_t bytes_total;   /**< DOWNLOAD_PROGRESS only; 0 when unknown. */
+    size_t bytes_total;   /**< DOWNLOAD_PROGRESS, and UPDATE_AVAILABLE (the
+                               offer's size); 0 when unknown. */
 } simpleota_event_t;
 
 /** A pinned Ed25519 public key for signed-firmware verification. */
@@ -136,7 +139,7 @@ typedef struct {
     uint32_t confirm_timeout_s;    /**< 0 => 300. Clamped to [10, 86400]. */
     bool manual_confirm;           /**< Managed mode: true = the app calls
                                         simpleota_confirm(); false = the first
-                                        check-in confirms. Polling mode always
+                                        successful check-in confirms. Polling mode always
                                         needs simpleota_confirm(). */
     bool disable_auto_reboot;      /**< true: app calls simpleota_reboot_for_update(). */
 
@@ -150,7 +153,8 @@ typedef struct {
      *  NULL = always try: start() must then come after the IP arrives, or
      *  the first check fails and the next is check_interval_s later. */
     bool (*is_connected)(void *user_ctx);
-    /** Lifecycle events; called from the component task. Keep it quick. */
+    /** Lifecycle events, called on the task that runs the update: the
+     *  component task, or the app's task in polling mode. Keep it quick. */
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
     void *user_ctx;
 
@@ -178,7 +182,9 @@ esp_err_t simpleota_init(const simpleota_config_t *config);
  *  only the task's check-in confirms the trial (unless manual_confirm). */
 esp_err_t simpleota_start(void);
 
-/** Stop the managed task. Blocks briefly; never interrupts a flash write. */
+/** Stop the managed task. Waits for its current step, up to 60 s, so a
+ *  download or flash write is never cut short. ESP_ERR_TIMEOUT when it
+ *  is still running then. */
 esp_err_t simpleota_stop(void);
 
 /** Wake the managed task to check immediately. */

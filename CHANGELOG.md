@@ -32,6 +32,8 @@
 - A download redirect is followed only to another `https://` URL
   (`redirect_not_https` otherwise), and a `base_url` that is not `https://`
   fails `simpleota_init()` with a log line saying why.
+- Without `simpleota_start()`, the confirm timeout now rolls back from a short-lived task. Before, nothing acted on it until the next reset.
+- `simpleota_deinit()` from `event_cb` returns `ESP_ERR_INVALID_STATE`, instead of freeing what the running task uses.
 - `simpleota_deinit()` returns `ESP_ERR_TIMEOUT` and releases nothing when
   the task does not stop, instead of freeing what a running download uses.
 - Tokens of any length work; one over about 180 characters used to fail every

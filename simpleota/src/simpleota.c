@@ -4,12 +4,14 @@
  * (src/core, vendored from SimpleOTAClient-core), so the protocol, the
  * trial record in NVS and the rollback rules match the Arduino client.
  *
- * Threading model: one background task ("simpleota", the core's
- * sota_runner) owns all network and flash activity. Public API calls only
- * notify it, except simpleota_confirm(), which records the confirm on the
- * caller's task, and simpleota_reboot_for_update(), which stops the
+ * Threading model: in managed mode one background task ("simpleota", the
+ * core's sota_runner) owns all network and flash activity. Public API calls
+ * only notify it, except simpleota_confirm(), which records the confirm on
+ * the caller's task, and simpleota_reboot_for_update(), which stops the
  * background task and posts its status from a short-lived task of the same
- * stack size.
+ * stack size. In polling mode simpleota_check() and simpleota_apply() run
+ * on the caller's task. Without the managed task, the confirm timeout's
+ * rollback runs on a short-lived task.
  */
 
 #include "simpleota.h"
@@ -255,7 +257,8 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
 
 esp_err_t simpleota_start(void)
 {
-    if (!s.initialized || s.runner.task) return ESP_ERR_INVALID_STATE;
+    if (!s.initialized) return ESP_ERR_INVALID_STATE;
+    if (s.runner.task) return ESP_OK;
     s.engine.cfg.auto_confirm = !s.manual_confirm;
     if (sota_runner_start(&s.runner, "simpleota")) return ESP_OK;
     s.engine.cfg.auto_confirm = false;
@@ -359,6 +362,8 @@ uint32_t simpleota_current_build(void) { return s.engine.st.live.build; }
 
 esp_err_t simpleota_deinit(void)
 {
+    /* The task cannot wait for itself to stop. */
+    if (sota_runner_on_task(&s.runner)) return ESP_ERR_INVALID_STATE;
     /* A task still in a long download uses the strings below. */
     if (simpleota_stop() != ESP_OK) return ESP_ERR_TIMEOUT;
     /* Also after a failed init, which may have set the engine up. */

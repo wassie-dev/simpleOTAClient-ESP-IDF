@@ -36,8 +36,9 @@
  * The component is a process-wide singleton (one instance per device);
  * a second simpleota_init() returns ESP_ERR_INVALID_STATE.
  *
- * Thread-safety: configure and init from one task. The public functions are
- * safe to call from any task after init.
+ * Thread-safety: configure and init from one task. After init the public
+ * functions are safe to call from any task, except that polling mode and
+ * simpleota_set_server_url() belong to one task of the application's.
  */
 
 #ifndef SIMPLEOTA_H
@@ -185,7 +186,8 @@ simpleota_result_t simpleota_apply(void);
 /** Point check-ins and status posts at another SimpleOTA server. Same rules
  *  as base_url: https:// with a host. Firmware downloads still use the
  *  offer's pre-signed URL. ESP_ERR_INVALID_ARG keeps the previous URL;
- *  ESP_ERR_INVALID_STATE before init or while the managed task runs. */
+ *  ESP_ERR_INVALID_STATE before init or while the managed task runs.
+ *  Not while simpleota_check() or simpleota_apply() runs on another task. */
 esp_err_t simpleota_set_server_url(const char *url);
 
 /** The version label of the last offer, or "" when there is none. Valid
@@ -219,7 +221,8 @@ bool simpleota_is_trial_boot(void);
 uint32_t simpleota_current_build(void);
 
 /** Stop (if needed) and release all resources. Mainly for tests.
- *  ESP_ERR_TIMEOUT when the task did not stop; nothing is released then. */
+ *  ESP_ERR_TIMEOUT when the task did not stop; nothing is released then.
+ *  ESP_ERR_INVALID_STATE from event_cb on the component task. */
 esp_err_t simpleota_deinit(void);
 
 #ifdef __cplusplus

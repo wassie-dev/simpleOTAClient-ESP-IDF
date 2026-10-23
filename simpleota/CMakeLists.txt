@@ -24,6 +24,18 @@ idf_component_register(
                   ${sota_priv_wdt}
 )
 
+# Shown when the project is configured, not compiled, so -Werror builds pass.
+if(NOT CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE)
+    if(CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK)
+        message(WARNING "simpleota: CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is off, so "
+                "failed updates are rolled back in software, which misses an image "
+                "that crashes before simpleota_init() on every boot. Enable it on "
+                "devices that have not shipped yet: the bootloader is not updated over the air.")
+    else()
+        message(WARNING "simpleota: rollback is off. Every update is accepted on its first boot.")
+    endif()
+endif()
+
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     SOTA_DL_CHUNK=${CONFIG_SIMPLEOTA_DOWNLOAD_CHUNK}u
     SOTA_LOG_LEVEL=${CONFIG_LOG_MAXIMUM_LEVEL})

@@ -96,6 +96,11 @@ static simpleota_t s;
 void sota_app_event(void *user, const sota_event_t *ev)
 {
     simpleota_t *c = (simpleota_t *)user;
+#if CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK
+    if (ev->id == SOTA_EVENT_TRIAL_BOOT) {
+        ESP_LOGW(TAG, "bootloader rollback is off: this trial is supervised in software");
+    }
+#endif
     if (!c->event_cb) return;
     simpleota_event_t out = {
         .id = (simpleota_event_id_t)ev->id,

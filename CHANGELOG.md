@@ -16,6 +16,9 @@
   `simpleota_init()` on every boot.
 - A rollback cut short by a power loss is finished on the next boot, instead
   of leaving the failed image running.
+- Configuring a project without `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`
+  prints a CMake warning, and a software-supervised trial logs one warning
+  when it starts.
 - The trial watchdog runs without bootloader rollback too.
 - A trial that boots after a panic or watchdog reset is rolled back.
 - `simpleota_confirm()` returns `ESP_FAIL` when the bootloader cannot record

@@ -24,7 +24,7 @@ static void run(void *arg)
     if (r->initial_delay_ms && !r->engine->timeout_pending) wait_ms(r->initial_delay_ms);
     while (!r->stop) {
         bool connected = !r->is_connected || r->is_connected(r->ctx);
-        uint32_t wait_s = sota_engine_step(r->engine, connected, NULL);
+        uint32_t wait_s = sota_engine_step(r->engine, connected);
         if (r->stop) break;
         wait_ms((uint64_t)wait_s * 1000u);
     }

@@ -126,14 +126,9 @@ void sota_engine_timeout_fired(sota_engine_t *e);
 void sota_engine_service(sota_engine_t *e);
 
 /** One pass of a managed task: service, then check and apply when
- *  connected. *applied (may be NULL) gets apply()'s result when it ran.
- *  Returns the seconds to wait before the next pass. */
-uint32_t sota_engine_step(sota_engine_t *e, bool connected, sota_apply_result_t *applied);
-
-/** Post a status event for the offer, or for the update just flashed.
- *  Returns the HTTP status, or -1 when there is no deployment or no
- *  response. */
-int sota_engine_report(sota_engine_t *e, const char *event, const char *reason);
+ *  connected. Events report the outcome. Returns the seconds to wait
+ *  before the next pass. */
+uint32_t sota_engine_step(sota_engine_t *e, bool connected);
 
 /** With auto_reboot off: post "reboot" for the waiting update and restart.
  *  Returns false, without restarting, when no update is waiting. */

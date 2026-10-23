@@ -143,7 +143,7 @@ static sota_apply_result_t commit(sota_engine_t *e, uint32_t slot, uint32_t runn
 
     sota_engine_post_status(e, "flashed", NULL, e->offer.deployment, e->offer.build);
     sota_engine_post_status(e, "validated", NULL, e->offer.deployment, e->offer.build);
-    /* The deployment stays for sota_engine_report(); the next check clears it. */
+    /* The offer's version and deployment stay until the next check. */
     free(e->offer.url);
     e->offer.url = NULL;
     e->has_offer = false;

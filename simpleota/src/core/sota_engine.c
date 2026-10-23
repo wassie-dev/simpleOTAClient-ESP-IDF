@@ -457,28 +457,17 @@ bool sota_engine_check(sota_engine_t *e)
     return e->has_offer;
 }
 
-uint32_t sota_engine_step(sota_engine_t *e, bool connected, sota_apply_result_t *applied)
+uint32_t sota_engine_step(sota_engine_t *e, bool connected)
 {
     sota_engine_service(e);
     if (connected && sota_engine_check(e) && !e->in_trial && !sota_engine_waiting) {
-        sota_apply_result_t r = sota_engine_apply(e);
-        if (applied) *applied = r;
+        sota_engine_apply(e);
     }
     sota_sys_lock();
     bool report_pending = e->outbox.count > 0;
     sota_sys_unlock();
     return sota_poll_interval_s(connected, e->in_trial, report_pending, e->report_failures,
                                 SOTA_TRIAL_RETRY_INTERVAL_S, e->cfg.check_interval_s);
-}
-
-int sota_engine_report(sota_engine_t *e, const char *event, const char *reason)
-{
-    if (!running(e)) return -1;
-    if (e->offer.deployment[0]) {
-        return sota_engine_post_status(e, event, reason, e->offer.deployment, e->offer.build);
-    }
-    if (!sota_engine_waiting) return -1;
-    return sota_engine_post_status(e, event, reason, e->st.deployment, e->st.report_build);
 }
 
 bool sota_engine_reboot_for_update(sota_engine_t *e)

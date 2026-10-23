@@ -274,6 +274,15 @@ void sota_engine_validate_boot(sota_engine_t *e)
             accept_record(e);
         }
         return;
+    case SOTA_BOOT_ROLLBACK_CUT:
+        /* The rollback is saved, so the boot that follows reports it. A
+         * previous image that cannot be selected would restart forever. */
+        SOTA_LOGW("finishing a rollback that power loss cut short");
+        if (info.pending || sota_boot_set(e->st.prev_part)) sota_boot_rollback(e->st.prev_part);
+        SOTA_LOGE("previous image cannot be selected; staying on this one");
+        sota_state_drop_trial();
+        sota_engine_reload(e);
+        return;
     case SOTA_BOOT_REPORT_PENDING:
         report_rollback(e, e->st.rb_reason[0] ? e->st.rb_reason : "confirm_timeout");
         return;

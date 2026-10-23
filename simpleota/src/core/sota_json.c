@@ -105,7 +105,9 @@ bool sota_json_get_u32(const char *json, const char *key, uint32_t *out) {
     uint32_t v = 0;
     bool any = false;
     while (p < n && json[p] >= '0' && json[p] <= '9') {
-        v = v * 10u + (uint32_t)(json[p] - '0');
+        uint32_t d = (uint32_t)(json[p] - '0');
+        if (v > (UINT32_MAX - d) / 10u) return false; /* would wrap */
+        v = v * 10u + d;
         ++p;
         any = true;
     }

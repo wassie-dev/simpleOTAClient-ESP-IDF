@@ -12,13 +12,10 @@ bool sota_image_begin(size_t expected, uint32_t *slot, uint32_t *running)
 {
     const esp_partition_t *run = esp_ota_get_running_partition();
     const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
-    if (!run || !next) return false;
-    /* A known size erases as the write goes. OTA_SIZE_UNKNOWN would erase
-     * the whole slot up front, which can starve the idle task. */
-    if (esp_ota_begin(next, expected ? expected : OTA_WITH_SEQUENTIAL_WRITES, &s_handle) !=
-        ESP_OK) {
-        return false;
-    }
+    if (!run || !next || expected > next->size) return false;
+    /* Erase as the write goes. A size here would erase that much up front,
+     * stalling the open download for seconds. */
+    if (esp_ota_begin(next, OTA_WITH_SEQUENTIAL_WRITES, &s_handle) != ESP_OK) return false;
     *slot = next->address;
     *running = run->address;
     return true;

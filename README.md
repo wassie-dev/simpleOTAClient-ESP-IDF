@@ -25,10 +25,12 @@ New to ESP-IDF, or want to test on real hardware? See
 [docs/hardware-testing.md](docs/hardware-testing.md) for a full
 install-to-first-OTA walkthrough.
 
-The update logic lives in
-[SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) and
-is copied into `simpleota/src/core` as plain files; its host tests live in
-the core repository. To move to another core tag or commit, run
+The client itself, the `simpleota.h` API and everything behind it, lives in
+[SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core),
+which the Arduino library ships too. It is copied into `simpleota/src/core`,
+with the header in `simpleota/include`, as plain files; its host tests live
+in the core repository. This repository is the packaging: the component's
+`CMakeLists.txt`, `Kconfig`, manifest, examples and docs. To move to another core tag or commit, run
 `scripts/update-core.sh <ref>` and commit the result. CI fails when the copy
 differs from the commit in `simpleota/src/core/CORE_VERSION`.
 

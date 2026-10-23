@@ -447,7 +447,7 @@ bool sota_engine_check(sota_engine_t *e)
     }
     free(body);
     if (status < 200 || status >= 300) {
-        SOTA_LOGD("check-in: HTTP %d", status);
+        SOTA_LOGI("check: failed (HTTP %d)", status);
         free(resp);
         return false;
     }
@@ -463,14 +463,15 @@ bool sota_engine_check(sota_engine_t *e)
     sota_check_result_t r = sota_protocol_parse_check(resp, &e->offer);
     if (r == SOTA_CHECK_OFFER) {
         e->has_offer = true;
-        SOTA_LOGI("offer: build %u %s", (unsigned)e->offer.build, e->offer.version);
+        SOTA_LOGI("check: offer build=%u %s", (unsigned)e->offer.build, e->offer.version);
         sota_engine_emit(e, SOTA_EVENT_UPDATE_AVAILABLE, NULL, e->offer.build, 0,
                          e->offer.size);
     } else if (r == SOTA_CHECK_MALFORMED) {
-        SOTA_LOGW("check-in: unusable offer");
+        SOTA_LOGW("check: unusable offer");
     } else {
         char server_status[32];
         bool has = sota_protocol_check_status(resp, server_status, sizeof(server_status));
+        SOTA_LOGI("check: no update (%s)", has ? server_status : "no status");
         sota_engine_emit(e, SOTA_EVENT_CHECK_DONE, has ? server_status : NULL,
                          e->st.live.build, 0, 0);
     }

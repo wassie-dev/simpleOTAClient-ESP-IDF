@@ -1,19 +1,20 @@
 /**
- * sota_net_idf.c - the core's HTTP transport on esp_http_client.
+ * sota_net_esp32.c - the core's HTTP transport (sota_net.h) on
+ * esp_http_client, for both the ESP-IDF component and the Arduino library.
  */
 
-#include "sota_net_idf.h"
+#include "sota_net_esp32.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "sdkconfig.h"
+#include "sota_framework.h"
 
 #include "sota_net.h"
 
-static void client_config(const sota_net_idf_t *n, const char *url,
+static void client_config(const sota_net_esp32_t *n, const char *url,
                           esp_http_client_config_t *cfg)
 {
     memset(cfg, 0, sizeof(*cfg));
@@ -41,7 +42,7 @@ int sota_net_post(void *user, const char *url, const char *token, const char *bo
     snprintf(auth, auth_len, "Bearer %s", token);
 
     esp_http_client_config_t cfg;
-    client_config((const sota_net_idf_t *)user, url, &cfg);
+    client_config((const sota_net_esp32_t *)user, url, &cfg);
     cfg.method = HTTP_METHOD_POST;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) {
@@ -76,7 +77,7 @@ int sota_net_post(void *user, const char *url, const char *token, const char *bo
 int sota_net_dl_open(void *user, const char *url, int64_t *len, char *location,
                      size_t location_cap)
 {
-    sota_net_idf_t *n = (sota_net_idf_t *)user;
+    sota_net_esp32_t *n = (sota_net_esp32_t *)user;
     esp_http_client_config_t cfg;
     client_config(n, url, &cfg);
     cfg.keep_alive_enable = true;
@@ -105,7 +106,7 @@ int sota_net_dl_open(void *user, const char *url, int64_t *len, char *location,
 
 int sota_net_dl_read(void *user, uint8_t *buf, size_t cap)
 {
-    sota_net_idf_t *n = (sota_net_idf_t *)user;
+    sota_net_esp32_t *n = (sota_net_esp32_t *)user;
     /* Blocks up to the HTTP timeout; the core reports an error after that
      * long without a byte as download_stalled. */
     int r = esp_http_client_read(n->dl, (char *)buf, (int)cap);
@@ -116,7 +117,7 @@ int sota_net_dl_read(void *user, uint8_t *buf, size_t cap)
 
 void sota_net_dl_close(void *user)
 {
-    sota_net_idf_t *n = (sota_net_idf_t *)user;
+    sota_net_esp32_t *n = (sota_net_esp32_t *)user;
     if (n->dl) esp_http_client_cleanup(n->dl);
     n->dl = NULL;
 }

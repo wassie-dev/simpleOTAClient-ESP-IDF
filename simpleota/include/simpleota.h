@@ -1,44 +1,47 @@
 /**
- * simpleota.h - SimpleOTA managed OTA client for ESP-IDF.
+ * simpleota.h - the SimpleOTA client for ESP32, the same API in the ESP-IDF
+ * component and the Arduino library.
  *
  * Thin client for the SimpleOTA firmware update platform
  * (https://simpleota.com). Polls the check endpoint, streams and flashes
  * offered firmware with on-the-fly SHA-256 and Ed25519 signature
- * verification, reports lifecycle events, and integrates with the ESP-IDF
- * bootloader's app-rollback support for trial installs.
+ * verification, reports lifecycle events, and runs every new image as a
+ * trial that rolls back unless it is confirmed.
  *
  * The application owns network bring-up (Wi-Fi/Ethernet) and decides when
- * the component may talk to the network via the optional is_connected
- * callback; the component does the rest from its own background task
+ * the client may talk to the network via the optional is_connected
+ * callback; the client does the rest from its own background task
  * (managed mode). In polling mode the application calls simpleota_check()
  * and simpleota_apply() from its own task instead, and confirms a trial with
  * simpleota_confirm().
  *
- * Quick start (after Wi-Fi or Ethernet has an IP):
+ * Quick start:
  *
- *     simpleota_config_t cfg = {
- *         .token = "sota_pk_...",       // project (or device) token
- *     };
+ *     simpleota_config_t cfg = {0};      // {} in an Arduino sketch
+ *     cfg.token = "sota_pk_...";        // project (or device) token
+ *     cfg.is_connected = wifi_up;       // or start after the IP arrives
  *     ESP_ERROR_CHECK(simpleota_init(&cfg));
  *     ESP_ERROR_CHECK(simpleota_start());
  *
- * The PROJECT needs a partition table with two OTA app slots (README.md
- * has the recommended one), and rollback-aware trial installs need
- *
- *     CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
- *
- * Both ship with the first serial flash and cannot change over OTA. Without
- * bootloader rollback the component rolls a failed trial back itself
+ * The device needs a partition table with two OTA app slots, which
+ * Arduino-ESP32's default has. On ESP-IDF, rollback by the bootloader needs
+ * CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y, which Arduino-ESP32 sets. Both
+ * ship with the first serial flash and cannot change over OTA. Without
+ * bootloader rollback the client rolls a failed trial back itself
  * (CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK): on the confirm timeout, or on any
  * reset before the confirm, as the bootloader would. It cannot catch an
  * image that crashes before simpleota_init() on every boot.
  *
- * The component is a process-wide singleton (one instance per device);
+ * The client is a process-wide singleton (one instance per device);
  * a second simpleota_init() returns ESP_ERR_INVALID_STATE.
  *
  * Thread-safety: configure and init from one task. After init the public
  * functions are safe to call from any task, except that polling mode and
  * simpleota_set_server_url() belong to one task of the application's.
+ *
+ * Logs use the tag "simpleota". Warnings and errors show by default;
+ * esp_log_level_set("simpleota", ESP_LOG_DEBUG) after simpleota_init()
+ * shows every step.
  */
 
 #ifndef SIMPLEOTA_H
@@ -154,26 +157,29 @@ typedef struct {
      *  the first check fails and the next is check_interval_s later. */
     bool (*is_connected)(void *user_ctx);
     /** Lifecycle events, called on the task that runs the update: the
-     *  component task, or the app's task in polling mode. Keep it quick. */
+     *  managed task, or the app's task in polling mode. Keep it quick. */
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
     void *user_ctx;
 
-    /** TLS trust: default is the ESP-IDF certificate bundle. Set cert_pem to
-     *  pin a specific CA instead (then the bundle is not used). */
+    /** TLS trust, always verified. Default: the ESP-IDF certificate bundle,
+     *  or on Arduino, which does not ship it, the ISRG Root X1 and X2
+     *  certificates that SimpleOTA's hosts chain to. Set cert_pem to pin a
+     *  specific CA, or several concatenated, instead (then the bundle is not
+     *  used). */
     const char *cert_pem;
     esp_err_t (*crt_bundle_attach)(void *conf); /**< Override bundle fn; NULL = default. */
 } simpleota_config_t;
 
 /**
- * Initialize the component: copy config, apply defaults, parse and pin
+ * Initialize the client: copy config, apply defaults, parse and pin
  * signing keys, load persisted state, and run boot-time trial validation
  * (detects rollbacks, arms the confirm timeout for trial boots).
  *
- * Call AFTER nvs_flash_init(). Returns ESP_ERR_INVALID_ARG for a missing
- * token, an unparseable signing key, a token containing control
- * characters, or a base_url that is not https://; ESP_ERR_INVALID_STATE
- * when already initialized or when neither the certificate bundle nor a
- * cert_pem is available.
+ * Call AFTER nvs_flash_init(); Arduino-ESP32 has already called it.
+ * Returns ESP_ERR_INVALID_ARG for a missing token, an unparseable signing
+ * key, a token containing control characters, or a base_url that is not
+ * https://; ESP_ERR_INVALID_STATE when already initialized or when neither
+ * the certificate bundle nor a cert_pem is available.
  */
 esp_err_t simpleota_init(const simpleota_config_t *config);
 
@@ -222,7 +228,7 @@ const char *simpleota_last_offered_version(void);
 esp_err_t simpleota_confirm(void);
 
 /** Reboot into a downloaded update when disable_auto_reboot was set.
- *  Until then the component does not download another update, because the
+ *  Until then the client does not download another update, because the
  *  next update slot holds the one waiting for this reboot.
  *
  *  Stops the background task, posts the "reboot" status from a short-lived
@@ -239,7 +245,7 @@ uint32_t simpleota_current_build(void);
 
 /** Stop (if needed) and release all resources. Mainly for tests.
  *  ESP_ERR_TIMEOUT when the task did not stop; nothing is released then.
- *  ESP_ERR_INVALID_STATE from event_cb on the component task. */
+ *  ESP_ERR_INVALID_STATE from event_cb on the managed task. */
 esp_err_t simpleota_deinit(void);
 
 #ifdef __cplusplus

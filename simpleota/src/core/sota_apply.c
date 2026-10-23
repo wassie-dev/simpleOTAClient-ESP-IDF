@@ -17,7 +17,7 @@
 
 /** Download buffer, on the heap while an update is applied. */
 #ifndef SOTA_DL_CHUNK
-#define SOTA_DL_CHUNK 1024u
+#define SOTA_DL_CHUNK 4096u
 #endif
 
 /* Progress events at whole-percent steps, or every 64 KB when the size is
@@ -199,6 +199,15 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
     /* An old build may carry fixed bugs, and its signature still verifies.
      * To go back, release the old code under a new, higher build number. */
     if (e->offer.build <= e->st.live.build) {
+        /* The server offers it again on every check until the deployment
+         * changes, so it is reported once. */
+        if (e->offer.build == e->refused_build && !strcmp(e->offer.deployment, e->refused_dep)) {
+            SOTA_LOGD("build %u refused again", (unsigned)e->offer.build);
+            sota_engine_clear_offer(e);
+            return SOTA_APPLY_DOWNGRADE;
+        }
+        e->refused_build = e->offer.build;
+        memcpy(e->refused_dep, e->offer.deployment, sizeof(e->refused_dep));
         return give_up(e, &job, "downgrade_refused", SOTA_APPLY_DOWNGRADE);
     }
     if (!sota_url_has_scheme(e->offer.url, "https://") || !sota_url_chars_ok(e->offer.url)) {

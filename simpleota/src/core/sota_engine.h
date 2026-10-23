@@ -85,6 +85,8 @@ typedef struct sota_engine {
     bool last_check_ok;         /**< The last check-in got a 2xx. */
     bool validated;
     bool auth_warned;
+    uint32_t refused_build;     /**< The offer last refused as a downgrade, */
+    char refused_dep[sizeof(((sota_offer_t *)0)->deployment)]; /**< reported once per boot. */
 
     void *timer;
     volatile bool in_trial;

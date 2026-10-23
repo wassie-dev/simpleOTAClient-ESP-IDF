@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-The update logic is now [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core), shared with the Arduino client and copied into `simpleota/src/core`. Both clients have the same features, defaults and behaviour; the README maps each call to its Arduino counterpart.
+The client is now [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core), copied into `simpleota/src/core` and `simpleota/include`. The Arduino library 1.0.0 ships the same code with this same `simpleota.h` API, so both have the same features, defaults and behaviour, and code that uses SimpleOTA moves between them unchanged.
 
 ### Upgrading
 
@@ -14,6 +14,7 @@ The update logic is now [SimpleOTAClient-core](https://github.com/wassie-dev/sim
 - A `base_url` that is not `https://` fails `simpleota_init()` with `ESP_ERR_INVALID_ARG`.
 - `manual_confirm` applies to managed mode only. Without `simpleota_start()`, call `simpleota_confirm()` yourself.
 - `simpleota_confirm()` returns `ESP_FAIL`, not the bootloader's error code, when the image cannot be recorded as good.
+- **Going back to 0.2.x over USB:** 0.2.x does not know `sota_image`, so it keeps reporting the build 1.0.0 stored, the last one SimpleOTA installed, and is offered nothing until a higher build ships. Erase NVS when you flash it, or release the build you want as a new, higher one.
 
 ### Added
 
@@ -35,6 +36,8 @@ The update logic is now [SimpleOTAClient-core](https://github.com/wassie-dev/sim
 - The update slot is erased as the download is written, not all at once before it, and an image larger than the slot is refused before the download.
 - Server responses are read from their top-level fields only, and numbers too large for 32 bits are refused.
 - Labels that are not one JSON object are left out of the check-in with a warning, instead of making every check-in invalid.
+- Every check logs its result at info level, also during a trial: `check: no update (<status>)`, `check: offer build=N` or `check: failed (HTTP N)`.
+- A refused downgrade is reported to the server once per boot, not on every check.
 - About 1 KB less flash and 100 bytes less static RAM on the ESP32.
 
 ## 0.2.1

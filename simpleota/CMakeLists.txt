@@ -5,15 +5,14 @@ else()
     set(sota_priv_wdt hal)
 endif()
 
-# src/core is the shared core, vendored as plain files by its sync script.
+# The client is the shared core, vendored as plain files by its sync script:
+# src/core, and its public header in include.
 file(GLOB sota_core_srcs "${CMAKE_CURRENT_LIST_DIR}/src/core/*.c")
 
 idf_component_register(
-    SRCS "src/simpleota.c"
-         "src/sota_net_idf.c"
-         ${sota_core_srcs}
+    SRCS ${sota_core_srcs}
     INCLUDE_DIRS "include"
-    PRIV_INCLUDE_DIRS "src" "src/core"
+    PRIV_INCLUDE_DIRS "src/core"
     PRIV_REQUIRES esp_http_client
                   mbedtls
                   app_update

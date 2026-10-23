@@ -1,8 +1,7 @@
 /**
- * simpleota.c - the ESP-IDF client: the public API, the managed task, and
- * the core's application interface. The update logic is the shared core's
- * (src/core, vendored from SimpleOTAClient-core), so the protocol, the
- * trial record in NVS and the rollback rules match the Arduino client.
+ * simpleota.c - the public API (simpleota.h) over the engine, and the
+ * core's application interface. The ESP-IDF component and the Arduino
+ * library both build it; sota_framework.h has what differs between them.
  *
  * Threading model: in managed mode one background task ("simpleota", the
  * core's sota_runner) owns all network and flash activity. Public API calls
@@ -22,20 +21,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "sdkconfig.h"
-
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
-#include "esp_crt_bundle.h"
-#endif
-
 #include "sota_app.h"
 #include "sota_engine.h"
-#include "sota_net_idf.h"
+#include "sota_framework.h"
+#include "sota_net_esp32.h"
 #include "sota_runner.h"
 #include "sota_sys.h"
 #include "sota_url.h"
@@ -61,13 +55,6 @@ _Static_assert((int)SOTA_APPLY_OK == (int)SIMPLEOTA_OK &&
 
 static const char *TAG = "simpleota";
 
-/* Without bootloader rollback, the engine switches back itself. */
-#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE || CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK
-#define SOTA_ROLLBACK 1
-#else
-#define SOTA_ROLLBACK 0
-#endif
-
 /* The config's strings, copied at init: the engine borrows them. */
 enum {
     STR_TOKEN,
@@ -86,7 +73,7 @@ enum {
 };
 
 typedef struct {
-    sota_net_idf_t net; /* First: the engine's user pointer is this struct. */
+    sota_net_esp32_t net; /* First: the engine's user pointer is this struct. */
     sota_engine_t engine;
     sota_runner_t runner;
     char *str[STR_COUNT];
@@ -180,7 +167,7 @@ static esp_err_t init_engine(const simpleota_config_t *config)
         .device =
             {
                 .device_id = s.str[STR_DEVICE_ID],
-                .framework = "esp_idf",
+                .framework = SOTA_FRAMEWORK_NAME,
                 .chip_family = s.str[STR_CHIP_FAMILY],
                 .board_id = s.str[STR_BOARD_ID],
                 .hardware_revision = s.str[STR_HARDWARE_REVISION],
@@ -216,12 +203,14 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
 {
     if (s.initialized) return ESP_ERR_INVALID_STATE;
     if (!config || config->num_signing_keys > SOTA_VERIFIER_MAX_KEYS) return ESP_ERR_INVALID_ARG;
-#if !CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
-    if (!config->cert_pem) {
-        ESP_LOGE(TAG, "no TLS trust anchor: enable CONFIG_MBEDTLS_CERTIFICATE_BUNDLE or set cert_pem");
+    const char *ca = config->cert_pem;
+    esp_err_t (*attach)(void *conf) = config->crt_bundle_attach;
+    if (!ca && !attach && !sota_framework_default_trust(&ca, &attach)) {
+        ESP_LOGE(TAG, "no TLS trust anchor: enable CONFIG_MBEDTLS_CERTIFICATE_BUNDLE "
+                      "or set cert_pem");
         return ESP_ERR_INVALID_STATE;
     }
-#endif
+    sota_framework_init_logging(TAG);
 
     memset(&s, 0, sizeof(s));
     if (!copy_strings(config)) {
@@ -234,11 +223,9 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
         return err;
     }
 
-    s.net.cert_pem = s.str[STR_CERT_PEM];
-    s.net.crt_bundle_attach = config->crt_bundle_attach;
-#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
-    if (!s.net.cert_pem && !s.net.crt_bundle_attach) s.net.crt_bundle_attach = esp_crt_bundle_attach;
-#endif
+    /* A default CA is static: only the application's is copied. */
+    s.net.cert_pem = config->cert_pem ? s.str[STR_CERT_PEM] : ca;
+    s.net.crt_bundle_attach = attach;
     s.runner.engine = &s.engine;
     s.runner.initial_delay_ms = config->initial_delay_ms;
     s.runner.is_connected = config->is_connected;
@@ -346,7 +333,7 @@ static void reboot_task(void *arg)
 esp_err_t simpleota_reboot_for_update(void)
 {
     if (!s.initialized || !sota_engine_update_waiting()) return ESP_ERR_INVALID_STATE;
-    /* From event_cb, on the component task: its stack is big enough. */
+    /* From event_cb, on the managed task: its stack is big enough. */
     if (sota_runner_on_task(&s.runner)) sota_engine_reboot_for_update(&s.engine);
     /* Otherwise stop the task first, so only one TLS session is open. */
     simpleota_stop();

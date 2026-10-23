@@ -6,9 +6,9 @@ firmware with on-the-fly SHA-256 and Ed25519 signature verification, reports
 the full update lifecycle to the dashboard, and integrates with the ESP-IDF
 bootloader's app-rollback support so a bad build backs itself out.
 
-The sibling of [SimpleOTAClient-Arduino](https://github.com/xanderwasserman/SimpleOTAClient-Arduino):
-both clients implement the same device API contract and the same signed
-firmware semantics, so mixed fleets behave identically. A device keeps its
+The sibling of [SimpleOTAClient-Arduino](https://github.com/xanderwasserman/SimpleOTAClient-Arduino),
+which is the same client with the same `simpleota.h` API, so mixed fleets
+behave identically. A device keeps its
 identity (Wi-Fi MAC device id) across a migration between the two.
 
 Local OTA (ArduinoOTA, espota, ElegantOTA) is for a board on your desk. SimpleOTA is managed fleet OTA for ESP32 when those devices are in the field, without pulling you into a full IoT platform.
@@ -161,8 +161,7 @@ Every function is declared in
 The functions can be called from any task after init. Polling mode and
 `simpleota_set_server_url()` belong to one task of the application's.
 
-`simpleota_apply()` returns, with the same values as the Arduino client's
-`OTAResult`:
+`simpleota_apply()` returns:
 
 | Result | Meaning |
 |---|---|
@@ -418,7 +417,7 @@ simpleota_config_t cfg = {
 };
 ```
 
-Behavior matrix (identical to the Arduino client):
+Behavior matrix (the same in the Arduino library):
 
 | Device state | Offer | Result |
 |---|---|---|
@@ -510,27 +509,15 @@ across IDF v5.1 through latest on Xtensa and RISC-V targets.
 
 ## Arduino and ESP-IDF
 
-The [Arduino](https://github.com/xanderwasserman/SimpleOTAClient-Arduino) and [ESP-IDF](https://github.com/xanderwasserman/SimpleOTAClient-ESP-IDF) clients run the same core, so they have the same features, defaults and behaviour. Only the spelling follows each platform's style.
+The [Arduino library](https://github.com/xanderwasserman/SimpleOTAClient-Arduino)
+is this same client: the same `simpleota.h`, built from the same sources, so
+code that uses SimpleOTA works unchanged in a sketch. Two things differ,
+because Arduino-ESP32 has no Kconfig and no certificate bundle:
 
-| What | Arduino | ESP-IDF |
-|---|---|---|
-| Set up | `SimpleOTAClient ota(token, ...)` and setters | `simpleota_init(&config)` |
-| Managed mode | `begin(interval, isConnected, initialDelayMs)`, `end()` | `simpleota_start()`, `simpleota_stop()` |
-| Check now | `checkNow()` | `simpleota_check_now()` |
-| Polling mode | `check()`, `apply()` returning `OTAResult` | `simpleota_check()`, `simpleota_apply()` returning `simpleota_result_t` |
-| Events | `onEvent(callback)` | `config.event_cb` |
-| Confirm a trial | `confirm()` | `simpleota_confirm()` |
-| Confirm by hand in managed mode | `setManagedAutoConfirm(false)` | `config.manual_confirm = true` |
-| Trial state | `isTrialBoot()` | `simpleota_is_trial_boot()` |
-| Confirm timeout | `setConfirmTimeout(s)` | `config.confirm_timeout_s` |
-| Reboot when the app is ready | `setAutoReboot(false)`, `rebootForUpdate()` | `config.disable_auto_reboot`, `simpleota_reboot_for_update()` |
-| Server URL | `setServerUrl(url)` | `config.base_url`, `simpleota_set_server_url(url)` |
-| TLS trust | `setCACert(pem)` | `config.cert_pem` |
-| Signing keys | `setSigningPublicKey()`, `addSigningPublicKey()` | `config.signing_keys` |
-| Build and offer | `currentBuild()`, `lastOfferedVersion()` | `simpleota_current_build()`, `simpleota_last_offered_version()` |
-| Build of a USB-flashed image | `setImageBuild(build)` | `config.image_build` |
-| Logging | `setDebug(true)` | `esp_log_level_set("simpleota", ...)` |
-| HTTP timeout | `-DSIMPLEOTA_HTTP_TIMEOUT_MS` | `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` |
+- The build-time knobs above are `-D` flags there (`CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS`
+  and so on, with the same defaults), set in PlatformIO's `build_flags`.
+- Without `cert_pem`, TLS is verified against the ISRG Root X1 and X2
+  certificates that SimpleOTA's hosts chain to, instead of the bundle.
 
 ## Upgrading from 0.2
 
@@ -558,6 +545,14 @@ what behaves differently:
 - `simpleota_confirm()` returns `ESP_FAIL` when the bootloader cannot record
   the image as good, and `simpleota_deinit()` returns
   `ESP_ERR_INVALID_STATE` from `event_cb`.
+- Every check logs its result at info level (`check: no update (up_to_date)`,
+  `check: offer build=N`, `check: failed (HTTP N)`).
+
+Going back to 0.2.x over USB works, but 0.2.x does not know the `sota_image`
+key, so it keeps reporting the build 1.0.0 stored (the last one SimpleOTA
+installed) instead of build 0. The server then offers it nothing until a
+higher build ships. Erase NVS when you flash it, or release the build you
+want as a new, higher one.
 
 The [CHANGELOG](https://github.com/xanderwasserman/SimpleOTAClient-ESP-IDF/blob/main/CHANGELOG.md)
 lists every change.

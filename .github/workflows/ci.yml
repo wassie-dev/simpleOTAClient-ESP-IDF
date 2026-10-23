@@ -20,7 +20,7 @@ jobs:
           ref: ${{ steps.core.outputs.sha }}
           path: core
       - name: Compare
-        run: core/scripts/sync-core.sh --check simpleota/src/core
+        run: core/scripts/sync-core.sh --check simpleota/src/core simpleota/include
 
   build-examples:
     name: "${{ matrix.example }} (IDF ${{ matrix.idf }}, ${{ matrix.target }}, ${{ matrix.wdt }})"

@@ -7,7 +7,8 @@
  *   sota_build      u32   build number of the live (reported) image
  *   sota_hash       str   sha256 hex of the live image
  *   sota_ver        str   version label of the live image
- *   sota_trial      u8    0 steady, 1 trial, 2 rolled back with a report pending
+ *   sota_trial      u8    0 steady, 1 trial, 3 trial that has booted,
+ *                         2 rolled back with a report pending
  *   sota_staged     u8    present while the trial record is written but the
  *                         boot slot has not switched yet (sota_trial.h)
  *   sota_new_part   u32   flash address the update went to
@@ -104,6 +105,16 @@ bool sota_state_set_identity(const sota_identity_t *id);
  * build, which the server would then never offer again.
  */
 bool sota_state_mark_rolled_back(const sota_state_t *st, const char *reason);
+
+/** The new image has booted: its next reset ends the trial. */
+bool sota_state_mark_booted(void);
+
+/**
+ * The trial passed: sota_trial goes, and what is left reads as an update
+ * applied without a trial, whose confirmed report the next boot queues if
+ * this one cannot.
+ */
+bool sota_state_end_trial(void);
 
 /** Remove the trial record and its report context. */
 bool sota_state_drop_trial(void);

@@ -51,10 +51,12 @@ config SIMPLEOTA_SOFTWARE_ROLLBACK
     help
         Without CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE, a new image still
         runs as a trial: if it is not confirmed within the confirm timeout,
-        hangs, crashes or resets by a watchdog first, the component switches
-        back to the previous image itself. A crash before simpleota_init()
-        runs is not caught, which bootloader rollback does catch, so enable
-        that on new devices. Disable this to accept a new image on its first
+        or resets for any reason before then (a crash, a watchdog, a
+        brownout, a power loss, esp_restart() or deep sleep), the component
+        switches back to the previous image itself, as the bootloader would.
+        Confirm before restarting on purpose. An image that crashes before
+        simpleota_init() on every boot is not caught, which bootloader
+        rollback does catch, so enable that on new devices. Disable this to accept a new image on its first
         boot, as releases before 0.3 did.
 
 config SIMPLEOTA_DISABLE_TRIAL_WATCHDOG

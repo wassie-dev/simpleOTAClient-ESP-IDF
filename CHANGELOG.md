@@ -8,14 +8,23 @@
   `simpleota/src/core`, so the protocol, the trial record in NVS and the
   rollback rules are the Arduino client's. The public API is unchanged.
 - Without `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, a new image now runs as a
-  trial and the component rolls it back itself on a confirm timeout, a crash
-  or watchdog reset, or a deep sleep before confirming
+  trial and the component rolls it back itself, as the bootloader would: on a
+  confirm timeout, or on any reset before confirming (a crash, a watchdog, a
+  brownout, a power loss, `esp_restart()` or deep sleep)
   (`CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK`, on by default). Bootloader rollback
-  is still recommended: it also catches a crash before `simpleota_init()`.
+  is still recommended: it also catches an image that crashes before
+  `simpleota_init()` on every boot.
+- A rollback cut short by a power loss is finished on the next boot, instead
+  of leaving the failed image running.
 - The trial watchdog runs without bootloader rollback too.
 - A trial that boots after a panic or watchdog reset is rolled back.
 - `simpleota_confirm()` returns `ESP_FAIL` when the bootloader cannot record
   the image as good.
+- The update slot is erased as the download is written, not all at once
+  before it, and an image larger than the slot is refused before the
+  download.
+- Server responses are read from their top-level fields only, and numbers
+  too large for 32 bits are refused.
 - About 1 KB less flash and 100 bytes less static RAM on the ESP32.
 
 ## 0.2.1

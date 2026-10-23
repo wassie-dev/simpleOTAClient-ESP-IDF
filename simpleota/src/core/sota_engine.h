@@ -89,7 +89,9 @@ typedef struct sota_engine {
 } sota_engine_t;
 
 /** Set up an engine. No storage or network access. False for a token with
- *  control characters or an unusable server URL. */
+ *  control characters, an unusable server URL, or while another engine is
+ *  set up: a device has one trial record, so it runs one engine until
+ *  sota_engine_deinit(). */
 bool sota_engine_init(sota_engine_t *e, const sota_config_t *cfg);
 
 /** Pin an Ed25519 public key (PEM). key_id may be NULL. False when the
@@ -133,7 +135,8 @@ int sota_engine_report(sota_engine_t *e, const char *event, const char *reason);
  *  Returns false, without restarting, when no update is waiting. */
 bool sota_engine_reboot_for_update(sota_engine_t *e);
 
-/** Stop the timer and the watchdog and free the offer. */
+/** Stop the timer and the watchdog, free the offer, and let another engine
+ *  be set up. */
 void sota_engine_deinit(sota_engine_t *e);
 
 /** A flashed update waits for its reboot (for this boot, every engine). */

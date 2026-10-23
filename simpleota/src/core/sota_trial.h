@@ -2,7 +2,8 @@
  * sota_trial.h - what a boot means for a saved trial record.
  *
  * The trial record uses NVS keys that every release of both clients reads
- * and writes: sota_trial (1 = trial, 2 = a rollback happened),
+ * and writes: sota_trial (1 = trial, 3 = a trial whose image has booted,
+ * 2 = a rollback happened),
  * sota_new_part (where the update went) and sota_prev_part (the partition
  * the update replaced). Arduino releases up to 0.6.0 write only
  * sota_prev_part; ESP-IDF releases write both. The classifier uses
@@ -16,7 +17,8 @@
  * sota_staged ignores it, and a record written without it reads like any
  * other, so updates in either direction between releases read the same way.
  *
- * Any trial value other than 0 and 2 is a trial.
+ * Any trial value other than 0 and 2 is a trial, so a release that does not
+ * know 3 reads it as one.
  *
  * No platform types, so the host tests can include this header.
  */
@@ -35,7 +37,7 @@ typedef enum {
     SOTA_BOOT_WAITING,        /**< Flashed, not booted yet (deep-sleep wake). */
     SOTA_BOOT_ABANDONED,      /**< The slot switch never happened: drop quietly. */
     SOTA_BOOT_INCOMPLETE,     /**< The record cannot be checked: drop it. */
-    SOTA_BOOT_SLEPT_IN_TRIAL, /**< The new image woke from deep sleep unconfirmed: roll back. */
+    SOTA_BOOT_TRIAL_RESET,    /**< The new image reset before it was confirmed: roll back. */
     SOTA_BOOT_ROLLBACK_CUT,   /**< A rollback was saved but its slot switch never happened. */
 } sota_boot_outcome_t;
 
@@ -44,6 +46,13 @@ typedef enum {
  * previous image's identity, then SNAPSHOT, and only then overwrites the
  * live identity with the new build's.
  */
+/** sota_trial values. */
+enum {
+    SOTA_TRIAL_STAGED = 1, /**< The new image has not booted yet. */
+    SOTA_TRIAL_ROLLED_BACK = 2,
+    SOTA_TRIAL_BOOTED = 3, /**< The new image booted once; any reset ends the trial. */
+};
+
 enum {
     SOTA_STAGED_STARTED = 1,
     SOTA_STAGED_SNAPSHOT = 2,
@@ -74,7 +83,7 @@ static inline sota_boot_outcome_t sota_classify_boot(const sota_boot_facts_t *f)
     if (f->trial == 0) return f->staged ? SOTA_BOOT_ABANDONED : SOTA_BOOT_NONE;
     /* A rollback saves sota_trial = 2 before it leaves the new image, so
      * still running that image means power was lost in between. */
-    if (f->trial == 2) {
+    if (f->trial == SOTA_TRIAL_ROLLED_BACK) {
         return f->running_part != 0 && f->prev_part != 0 && sota_on_new_image(f)
                    ? SOTA_BOOT_ROLLBACK_CUT
                    : SOTA_BOOT_REPORT_PENDING;
@@ -84,11 +93,17 @@ static inline sota_boot_outcome_t sota_classify_boot(const sota_boot_facts_t *f)
     }
     bool on_new = sota_on_new_image(f);
 
-    /* A trial ends at deep sleep. Where the bootloader resumes the image on
-     * a wake without validating it (CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_
-     * SLEEP), an image that sleeps before it is confirmed would otherwise
-     * get a fresh confirm timeout on every wake, and never roll back. */
-    if (on_new) return f->deep_sleep_wake ? SOTA_BOOT_SLEPT_IN_TRIAL : SOTA_BOOT_TRIAL;
+    /* Like the bootloader's probation, a trial ends at the first reset of
+     * the new image, whatever the cause: a crash, a watchdog, a power loss,
+     * a restart. Without that, an image that resets before it is confirmed
+     * gets a fresh confirm timeout on every boot, and never rolls back.
+     * Deep sleep counts too: where the bootloader resumes the image on a
+     * wake without validating it (CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_
+     * SLEEP), the trial would otherwise outlive any number of wakes. */
+    if (on_new) {
+        return f->trial == SOTA_TRIAL_BOOTED || f->deep_sleep_wake ? SOTA_BOOT_TRIAL_RESET
+                                                                   : SOTA_BOOT_TRIAL;
+    }
 
     /* A deep-sleep wake can resume the old image while the boot slot already
      * points at the new one, so the slot switch did happen. */
@@ -121,7 +136,7 @@ static inline bool sota_abandon_restores_identity(uint8_t staged)
 static inline bool sota_hold_pending_image(bool image_pending, sota_boot_outcome_t outcome)
 {
     return image_pending &&
-           (outcome == SOTA_BOOT_TRIAL || outcome == SOTA_BOOT_SLEPT_IN_TRIAL ||
+           (outcome == SOTA_BOOT_TRIAL || outcome == SOTA_BOOT_TRIAL_RESET ||
             outcome == SOTA_BOOT_ROLLBACK_CUT);
 }
 
@@ -138,9 +153,10 @@ enum {
 };
 
 /**
- * The reset was a crash or a watchdog. A trial image that crashed has
- * failed its trial: without the bootloader's probation it would otherwise
- * get a fresh confirm timeout on every boot, and never roll back.
+ * The reset was a crash or a watchdog. A trial that crashed before it could
+ * save its first boot (SOTA_TRIAL_BOOTED), such as in a global constructor,
+ * has failed it too. Other resets cannot be told apart from the restart
+ * into the update.
  */
 static inline bool sota_reset_is_crash(int reset_reason)
 {

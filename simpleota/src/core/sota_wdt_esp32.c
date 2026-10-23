@@ -49,7 +49,7 @@ static void hw_off(void)
 
 #if SOTA_DEEP_SLEEP_HOOK
 /* A long sleep must not end in a watchdog reset. Waking before the trial
- * was confirmed rolls back anyway (SOTA_BOOT_SLEPT_IN_TRIAL). */
+ * was confirmed rolls back anyway (SOTA_BOOT_TRIAL_RESET). */
 static void before_deep_sleep(void)
 {
     sota_sys_wdt_disarm();

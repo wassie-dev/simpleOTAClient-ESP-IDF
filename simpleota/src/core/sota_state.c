@@ -86,7 +86,7 @@ bool sota_state_stage_trial(const sota_identity_t *prev, const sota_identity_t *
                   set_identity(K_BUILD, K_HASH, K_VER, next) &&
                   set_report_context(deployment, next->build) &&
                   sota_kv_erase(K_RB_REASON) &&
-                  sota_kv_set_u8(K_TRIAL, 1);
+                  sota_kv_set_u8(K_TRIAL, SOTA_TRIAL_STAGED);
     if (staged) return true;
     /* Only a complete snapshot was followed by writes to the live identity. */
     if (snapshot) set_identity(K_BUILD, K_HASH, K_VER, prev);
@@ -114,7 +114,17 @@ bool sota_state_mark_rolled_back(const sota_state_t *st, const char *reason)
 {
     return set_identity(K_BUILD, K_HASH, K_VER, &st->prev) &&
            sota_kv_set_str(K_RB_REASON, reason ? reason : "confirm_timeout") &&
-           sota_kv_set_u8(K_TRIAL, 2);
+           sota_kv_set_u8(K_TRIAL, SOTA_TRIAL_ROLLED_BACK);
+}
+
+bool sota_state_mark_booted(void)
+{
+    return sota_kv_set_u8(K_TRIAL, SOTA_TRIAL_BOOTED);
+}
+
+bool sota_state_end_trial(void)
+{
+    return sota_kv_erase(K_TRIAL);
 }
 
 bool sota_state_drop_trial(void)

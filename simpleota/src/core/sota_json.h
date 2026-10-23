@@ -1,7 +1,9 @@
 /**
  * sota_json.h - minimal flat-JSON value extraction for SimpleOTA responses.
  *
- * Finds a "key" and reads its string / bool / unsigned value. This is NOT a
+ * Finds a "key" among the top-level object's members and reads its string /
+ * bool / unsigned value. Keys inside nested objects and arrays are not
+ * matched, so a nested field cannot stand in for a top-level one. This is NOT a
  * general JSON parser; it is a C port of the hardware-proven scanner the
  * Arduino client has used since its first release. Chosen over cJSON
  * because the bundled `json` component left the ESP-IDF core in IDF 6, and

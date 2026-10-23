@@ -4,44 +4,40 @@
 
 #include <string.h>
 
-/* Find `"key"` at any nesting depth and set *val_start to the first
- * non-whitespace character after the colon. Skips over other quoted strings
- * honoring backslash escapes so embedded quotes cannot end the scan early. */
+static bool is_space(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+/* Find `"key"` among the top-level object's members and set *val_start to
+ * the first non-whitespace character of its value. A key of the same name
+ * inside a nested object or array is not a match. Strings are skipped
+ * honoring backslash escapes, so braces and quotes inside them do not count. */
 static bool json_find_value(const char *s, const char *key, size_t *val_start) {
     size_t klen = strlen(key);
     size_t n = strlen(s);
-    size_t p = 0;
-    while (p < n) {
+    int depth = 0;
+    for (size_t p = 0; p < n; ++p) {
         char c = s[p];
-        if (c == '"') {
+        if (c == '{' || c == '[') {
+            ++depth;
+        } else if (c == '}' || c == ']') {
+            --depth;
+        } else if (c == '"') {
             size_t q = p + 1;
-            bool matches = (q + klen < n) && (memcmp(s + q, key, klen) == 0) &&
-                           (s[q + klen] == '"');
-            if (matches) {
-                size_t look = q + klen + 1;
-                while (look < n && (s[look] == ' ' || s[look] == '\t' ||
-                                    s[look] == '\n' || s[look] == '\r')) {
-                    ++look;
-                }
-                if (look < n && s[look] == ':') {
-                    size_t v = look + 1;
-                    while (v < n && (s[v] == ' ' || s[v] == '\t' ||
-                                     s[v] == '\n' || s[v] == '\r')) {
-                        ++v;
-                    }
-                    *val_start = v;
-                    return true;
-                }
+            bool named = depth == 1 && q + klen < n && memcmp(s + q, key, klen) == 0 &&
+                         s[q + klen] == '"';
+            /* Skip to the closing quote. */
+            for (p = q; p < n && s[p] != '"'; ++p) {
+                if (s[p] == '\\') ++p;
             }
-            /* Not our key; skip the rest of this string. */
-            p = q;
-            while (p < n && s[p] != '"') {
-                if (s[p] == '\\' && p + 1 < n) p += 2;
-                else ++p;
-            }
-            if (p < n) ++p; /* past closing quote */
-        } else {
-            ++p;
+            if (!named) continue;
+            size_t v = p + 1;
+            while (v < n && is_space(s[v])) ++v;
+            if (v >= n || s[v] != ':') continue; /* a value, not a key */
+            ++v;
+            while (v < n && is_space(s[v])) ++v;
+            *val_start = v;
+            return true;
         }
     }
     return false;

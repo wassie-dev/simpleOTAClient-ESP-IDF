@@ -162,8 +162,9 @@ typedef struct {
  *
  * Call AFTER nvs_flash_init(). Returns ESP_ERR_INVALID_ARG for a missing
  * token, an unparseable signing key, a token containing control
- * characters, or a base_url that is not https://; ESP_ERR_INVALID_STATE when already initialized or when
- * neither the certificate bundle nor a cert_pem is available.
+ * characters, or a base_url that is not https://; ESP_ERR_INVALID_STATE
+ * when already initialized or when neither the certificate bundle nor a
+ * cert_pem is available.
  */
 esp_err_t simpleota_init(const simpleota_config_t *config);
 

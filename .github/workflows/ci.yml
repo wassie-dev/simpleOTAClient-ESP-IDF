@@ -36,6 +36,7 @@ jobs:
           - { idf: "v5.1.4", target: esp32, example: basic, wdt: require }
           - { idf: "v5.1.4", target: esp32, example: basic, wdt: absent }
           - { idf: "v5.1.4", target: esp32, example: signed, wdt: require }
+          - { idf: "v5.1.4", target: esp32, example: polling, wdt: require }
           - { idf: "v5.1.4", target: esp32c3, example: basic, wdt: require }
           - { idf: "v5.2.8", target: esp32s2, example: basic, wdt: require }
           - { idf: "v5.3.2", target: esp32, example: basic, wdt: require }
@@ -46,6 +47,7 @@ jobs:
           - { idf: "latest", target: esp32s3, example: basic, wdt: require }
           - { idf: "latest", target: esp32c3, example: basic, wdt: require }
           - { idf: "latest", target: esp32c3, example: signed, wdt: require }
+          - { idf: "latest", target: esp32c3, example: polling, wdt: require }
     steps:
       # The examples resolve the in-repo component via override_path pointing
       # at the simpleota/ subdirectory, whose name matches the component name

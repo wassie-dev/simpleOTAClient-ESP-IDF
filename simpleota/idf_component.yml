@@ -25,6 +25,7 @@ targets:
 # repository clone is called.)
 examples:
   - path: "../examples/basic"
+  - path: "../examples/polling"
   - path: "../examples/signed"
 # Deliberately no cJSON dependency: the bundled "json" component left the
 # IDF core in 6.0 and version-conditional manifest rules behave differently

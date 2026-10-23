@@ -57,7 +57,7 @@ config SIMPLEOTA_SOFTWARE_ROLLBACK
         Confirm before restarting on purpose. An image that crashes before
         simpleota_init() on every boot is not caught, which bootloader
         rollback does catch, so enable that on new devices. Disable this to accept a new image on its first
-        boot, as releases before 0.3 did.
+        boot, as releases before 1.0.0 did.
 
 config SIMPLEOTA_DISABLE_TRIAL_WATCHDOG
     bool "Leave the chip watchdog alone during a trial"

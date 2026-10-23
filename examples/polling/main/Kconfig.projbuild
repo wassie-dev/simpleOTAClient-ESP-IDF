@@ -1,0 +1,27 @@
+menu "Example Configuration"
+
+config EXAMPLE_WIFI_SSID
+    string "Wi-Fi SSID"
+    default "myssid"
+
+config EXAMPLE_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default "mypassword"
+
+config EXAMPLE_SIMPLEOTA_TOKEN
+    string "SimpleOTA project token"
+    default "paste-your-project-token"
+    help
+        Create a project at https://simpleota.com, then copy a project API
+        token with the device scope (Project -> API tokens).
+
+config EXAMPLE_IMAGE_BUILD
+    int "SimpleOTA build number of this image"
+    default 0
+    help
+        The build number SimpleOTA gives this image, when you know it before
+        you build. It is reported only when the image was flashed over USB
+        rather than installed by SimpleOTA, so the server does not replace
+        it with its current release. 0 reports build 0.
+
+endmenu

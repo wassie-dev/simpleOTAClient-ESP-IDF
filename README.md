@@ -16,7 +16,8 @@ Full documentation (features, configuration, signed firmware, rollback):
 **[simpleota/README.md](simpleota/README.md)** (the component itself, also
 rendered on the registry page).
 
-Complete example projects: [examples/basic](examples/basic) and
+Complete example projects: [examples/basic](examples/basic) (managed mode),
+[examples/polling](examples/polling) (the app runs the checks) and
 [examples/signed](examples/signed). The examples build against the in-repo
 component via a local override, so they always exercise the checked-out code.
 

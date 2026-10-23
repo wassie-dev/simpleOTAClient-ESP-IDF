@@ -79,7 +79,8 @@ not wait for one, set the optional `.is_connected` callback to return false
 until it does: each check then waits for the link, as
 [examples/basic](../examples/basic/main/main.c) does.
 See [examples/basic](../examples/basic) for a full project including Wi-Fi
-bring-up, and [examples/signed](../examples/signed) for signed firmware.
+bring-up, [examples/polling](../examples/polling) for polling mode, and
+[examples/signed](../examples/signed) for signed firmware.
 
 ### Polling mode
 
@@ -96,6 +97,7 @@ In polling mode you confirm a trial yourself with `simpleota_confirm()` once
 the new image is healthy, whatever `manual_confirm` says. The modes don't mix:
 while the managed task runs, `simpleota_check()` returns false and
 `simpleota_apply()` returns `SIMPLEOTA_NO_OFFER`, with a warning.
+[examples/polling](../examples/polling) is a complete project.
 
 `simpleota_set_server_url()` moves check-ins to another `https://` server
 while the managed task is stopped, and `simpleota_last_offered_version()`
@@ -112,7 +114,7 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | `device_id` | Wi-Fi STA MAC (`aa:bb:cc:dd:ee:ff`) | Stable per-unit identifier |
 | `chip_family` | `CONFIG_IDF_TARGET` | e.g. `esp32`, `esp32s3`, `esp32c3` |
 | `board_id`, `hardware_revision`, `partition_profile`, `channel` | omitted | Compatibility metadata; report what your artifacts constrain |
-| `labels_json` | omitted | Reserved: sent verbatim on check-ins, not yet consumed by the platform |
+| `labels_json` | omitted | Reserved: sent verbatim on check-ins, not yet consumed by the platform. Left out, with a warning, when it is not one JSON object |
 | `security_mode` | omitted | `SIMPLEOTA_SECURITY_SIGNED` to enforce signed firmware |
 | `version_label` | last persisted | Display-only version string |
 | `image_build` | 0 | This image's build number, reported when it was flashed some other way than SimpleOTA, such as over USB. See [Anti-rollback](#anti-rollback) |
@@ -130,8 +132,10 @@ All fields of `simpleota_config_t` (strings are copied at init):
 
 Build-time knobs (menuconfig, "SimpleOTA"): task stack size (12288),
 priority (5), HTTP timeout (15 s), HTTP TX buffer (2048 -- must fit the long
-pre-signed download URLs), download chunk size (4096), and
-`SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` (off), which leaves the trial watchdog out.
+pre-signed download URLs), download chunk size (4096),
+`SIMPLEOTA_SOFTWARE_ROLLBACK` (on; only without bootloader rollback, see
+[Rollback](#rollback)), and `SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` (off), which
+leaves the trial watchdog out.
 
 ## Update lifecycle
 
@@ -290,7 +294,7 @@ the same project without SimpleOTA:
 RAM is static RAM (`.data` and `.bss`).
 
 The component itself (`libsimpleota.a`, including the vendored Ed25519 and
-SHA-256 code) is about 26 KB of flash. Most of the flash added to a Wi-Fi-only
+SHA-256 code) is about 29 KB of flash. Most of the flash added to a Wi-Fi-only
 app is the HTTPS stack (mbedTLS, `esp_http_client` and the certificate
 bundle), which an app that already makes HTTPS requests has anyway.
 
@@ -388,9 +392,11 @@ mbedTLS call. Pick whichever fix suits your project:
 ## Examples
 
 - [examples/basic](../examples/basic): managed updates with rollback.
+- [examples/polling](../examples/polling): the app runs the checks and
+  confirms trials itself, and handles each `simpleota_result_t`.
 - [examples/signed](../examples/signed): on-device Ed25519 verification.
 
-Both are complete projects (`idf.py menuconfig` for Wi-Fi + token, then
+All are complete projects (`idf.py menuconfig` for Wi-Fi + token, then
 `idf.py flash monitor`). They build against the in-repo component through a
 local override that works from any clone directory name (the component lives
 in the `simpleota/` subdirectory precisely so the override resolves).
@@ -406,7 +412,7 @@ The update logic is the shared core in `src/core`, copied from
 [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) at
 the commit in `src/core/CORE_VERSION`. Its host tests cover signing, SHA-256,
 response parsing, the trial record, rollback, and a power cut at every storage
-write. CI checks that `src/core` matches that commit, and builds both examples
+write. CI checks that `src/core` matches that commit, and builds the examples
 across IDF v5.1 through latest on Xtensa and RISC-V targets.
 
 ## Arduino and ESP-IDF
@@ -432,6 +438,35 @@ The [Arduino](https://github.com/xanderwasserman/SimpleOTAClient-Arduino) and [E
 | Build of a USB-flashed image | `setImageBuild(build)` | `config.image_build` |
 | Logging | `setDebug(true)` | `esp_log_level_set("simpleota", ...)` |
 | HTTP timeout | `-DSIMPLEOTA_HTTP_TIMEOUT_MS` | `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` |
+
+## Upgrading from 0.2
+
+Devices update from 0.2.x over the air, also in the middle of a trial: the
+NVS layout is unchanged, and a trial that fails returns to the old release,
+which reads the rollback as it always has. 1.0.0 adds one NVS key,
+`sota_image`, which older releases ignore. Existing code compiles unchanged;
+what behaves differently:
+
+- A `base_url` that is not `https://` fails `simpleota_init()` with
+  `ESP_ERR_INVALID_ARG`, and download redirects are followed only to
+  `https://` URLs.
+- An offer whose build is not above the running one is refused
+  (`downgrade_refused`). See [Anti-rollback](#anti-rollback).
+- An image flashed over USB reports build 0, so the server offers it its
+  current release. Set `image_build` to keep it. Before, it kept reporting
+  the build SimpleOTA last installed.
+- `manual_confirm` applies to managed mode only. Without
+  `simpleota_start()`, call `simpleota_confirm()` yourself.
+- Without `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, new images now run as
+  trials and roll back on any reset before they are confirmed. Confirm
+  before restarting on purpose, or turn `CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK`
+  off to keep the old behaviour.
+- `simpleota_confirm()` returns `ESP_FAIL` when the bootloader cannot record
+  the image as good, and `simpleota_deinit()` returns
+  `ESP_ERR_INVALID_STATE` from `event_cb`.
+
+The [CHANGELOG](https://github.com/xanderwasserman/SimpleOTAClient-ESP-IDF/blob/main/CHANGELOG.md)
+lists every change.
 
 ## License
 

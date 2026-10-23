@@ -216,6 +216,24 @@ confirms: it should wake on the known-good build with `rolled_back` /
 `deep_sleep`. See the main
 [README](../simpleota/README.md#rollback) for what each rollback reason means.
 
+## 11. Test polling mode (optional)
+
+`examples/polling` runs the checks from the app's own loop instead of the
+component's task. Build and flash it as in steps 3 to 6, then test an update
+as in step 8 (upload `build/simpleota_polling.bin`). It checks once at boot
+and then hourly, so reset the board to check sooner. After the update it
+confirms the trial itself once Wi-Fi is up; the log shows `running build N
+(on trial)` and then the `confirmed` report.
+
+## 12. Test anti-rollback and USB flashing (optional)
+
+| Test | Expected result |
+|---|---|
+| Deploy a build that is older than, or the same as, the one the board runs | Nothing is downloaded; `failed` / `downgrade_refused` (`SIMPLEOTA_DOWNGRADE` in `examples/polling`) |
+| Serial-flash a different build over one SimpleOTA installed, with `image_build` left at 0 | The log warns `running an image SimpleOTA did not install; reporting build 0`, and the server offers the board its current release |
+| The same, with **SimpleOTA build number of this image** set in menuconfig to a build the server already has | The board reports that build and is not offered it again |
+| Serial-flash the same `.bin` that SimpleOTA installed | No warning; the board keeps its build |
+
 ## Getting back to Arduino
 
 Reflash your Arduino sketch the normal way (Arduino IDE or arduino-cli). It

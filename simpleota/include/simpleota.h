@@ -76,7 +76,8 @@ typedef enum {
 
 /** Events delivered to the config's event_cb (from the component task). */
 typedef enum {
-    SIMPLEOTA_EVENT_CHECK_DONE,        /**< A check completed; no update pending. */
+    SIMPLEOTA_EVENT_CHECK_DONE,        /**< A check completed; no update offered.
+                                            reason: the server's status. */
     SIMPLEOTA_EVENT_UPDATE_AVAILABLE,  /**< An update was offered; download starts next. */
     SIMPLEOTA_EVENT_DOWNLOAD_PROGRESS, /**< bytes_done / bytes_total advanced. */
     SIMPLEOTA_EVENT_UPDATE_FAILED,     /**< Update aborted; reason carries the token. */
@@ -85,8 +86,10 @@ typedef enum {
                                             simpleota_reboot_for_update() when
                                             disable_auto_reboot is set. */
     SIMPLEOTA_EVENT_TRIAL_BOOT,        /**< Running an unconfirmed (trial) image. */
-    SIMPLEOTA_EVENT_CONFIRMED,         /**< Trial image confirmed good. */
-    SIMPLEOTA_EVENT_ROLLING_BACK,      /**< Confirm timeout hit; rolling back now. */
+    SIMPLEOTA_EVENT_CONFIRMED,         /**< The trial image's confirmed report
+                                            was delivered. */
+    SIMPLEOTA_EVENT_ROLLING_BACK,      /**< The trial failed; the previous image
+                                            starts next. reason says why. */
 } simpleota_event_id_t;
 
 typedef struct {

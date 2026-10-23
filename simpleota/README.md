@@ -137,6 +137,58 @@ pre-signed download URLs), download chunk size (4096),
 [Rollback](#rollback)), and `SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` (off), which
 leaves the trial watchdog out.
 
+## API reference
+
+Every function is declared in
+[`include/simpleota.h`](include/simpleota.h), which has the details.
+
+| Function | Returns | Use |
+|---|---|---|
+| `simpleota_init(&cfg)` | `esp_err_t` | Once, after `nvs_flash_init()` and as early as possible: on a trial boot it starts the confirm timeout and the watchdog. `ESP_ERR_INVALID_ARG` for a missing or bad token, an unparseable key or a `base_url` that is not `https://`; `ESP_ERR_INVALID_STATE` when already initialized. |
+| `simpleota_start()` | `esp_err_t` | Managed mode: starts the background task that checks, applies, confirms and reports. Calling it again does nothing. |
+| `simpleota_stop()` | `esp_err_t` | Stops the managed task between steps, never during a flash write. |
+| `simpleota_check_now()` | `esp_err_t` | Managed mode: wakes the task to check now. |
+| `simpleota_check()` | `bool` | Polling mode: checks in; `true` when an update is offered. `false` while the managed task runs. |
+| `simpleota_apply()` | `simpleota_result_t` | Polling mode: downloads, verifies and flashes the offer from the last check, then reboots unless `disable_auto_reboot` is set. |
+| `simpleota_confirm()` | `esp_err_t` | Ends a trial: the image is kept. `ESP_OK` also when there is no trial; `ESP_FAIL` when the bootloader could not record it, and the trial goes on. |
+| `simpleota_is_trial_boot()` | `bool` | `true` while running an unconfirmed trial image. |
+| `simpleota_reboot_for_update()` | `esp_err_t` | With `disable_auto_reboot`: reports `reboot` and restarts into the waiting update. Returns only when none is waiting (`ESP_ERR_INVALID_STATE`). |
+| `simpleota_set_server_url(url)` | `esp_err_t` | Moves check-ins to another `https://` server, while the managed task is stopped. |
+| `simpleota_current_build()` | `uint32_t` | The build the device reports; 0 before its first update. |
+| `simpleota_last_offered_version()` | `const char *` | The last offer's version label, `""` without one. |
+| `simpleota_deinit()` | `esp_err_t` | Stops the task and frees everything; mainly for tests. |
+
+The functions can be called from any task after init. Polling mode and
+`simpleota_set_server_url()` belong to one task of the application's.
+
+`simpleota_apply()` returns, with the same values as the Arduino client's
+`OTAResult`:
+
+| Result | Meaning |
+|---|---|
+| `SIMPLEOTA_OK` (0) | Flashed and verified. With auto-reboot the device restarts before this returns. |
+| `SIMPLEOTA_CHECKSUM_FAIL` (1) | The download did not match its SHA-256. Nothing was made bootable. |
+| `SIMPLEOTA_FLASH_FAIL` (2) | A network, flash or NVS failure. Nothing was made bootable. |
+| `SIMPLEOTA_NO_OFFER` (3) | No offer from a successful `simpleota_check()`, or the managed task runs. |
+| `SIMPLEOTA_SIGNATURE_FAIL` (4) | A required signature is missing or wrong. See [Signed firmware](#signed-firmware). |
+| `SIMPLEOTA_REBOOT_PENDING` (5) | An earlier update waits for `simpleota_reboot_for_update()`. |
+| `SIMPLEOTA_UNCONFIRMED` (6) | The running image is on trial: confirm it, then apply again. The offer is kept. |
+| `SIMPLEOTA_DOWNGRADE` (7) | The offered build is not above the running one. See [Anti-rollback](#anti-rollback). |
+
+`event_cb` gets, from the task doing the work (keep it short, and don't call
+the component from it):
+
+| Event | `reason` | `build_number` |
+|---|---|---|
+| `SIMPLEOTA_EVENT_CHECK_DONE` | The server's status, such as `up_to_date` | The running build |
+| `SIMPLEOTA_EVENT_UPDATE_AVAILABLE` | | The offered build; `bytes_total` is its size when known |
+| `SIMPLEOTA_EVENT_DOWNLOAD_PROGRESS` | | The offered build; `bytes_done` of `bytes_total` |
+| `SIMPLEOTA_EVENT_UPDATE_FAILED` | The failure reason, as in [Update lifecycle](#update-lifecycle) | The offered build |
+| `SIMPLEOTA_EVENT_BEFORE_REBOOT` | | The flashed build |
+| `SIMPLEOTA_EVENT_TRIAL_BOOT` | | The build on trial |
+| `SIMPLEOTA_EVENT_CONFIRMED` | | The confirmed build, once its report is delivered |
+| `SIMPLEOTA_EVENT_ROLLING_BACK` | Why, such as `confirm_timeout` or `panic` | The build it returns to |
+
 ## Update lifecycle
 
 Status events reported to the dashboard, in order:
@@ -146,10 +198,28 @@ download_started -> downloaded -> flashed -> validated -> reboot
     -> (next successful check-in) confirmed | rolled_back
 ```
 
-Failures report `failed` with a reason token (`checksum_mismatch`,
-`signature_invalid`, `downgrade_refused`, `download_stalled`,
-`update_begin_failed`, ...) that the
-dashboard shows inline on the device row. Once a boot has worked out what
+Failures report `failed` with a reason token that the dashboard shows
+inline on the device row, and that `SIMPLEOTA_EVENT_UPDATE_FAILED` carries:
+
+| Reason | Stage |
+|---|---|
+| `downgrade_refused` | The offered build is not above the running one |
+| `insecure_url` | The download URL is not `https://` |
+| `signature_invalid` | A signed offer failed Ed25519 verification, or a required signature is missing |
+| `https_begin_failed` | The download connection could not be opened |
+| `http_status_<N>` | The download returned HTTP N, or a fourth redirect |
+| `redirect_not_https` | A download redirect led to a plain HTTP URL |
+| `redirect_malformed` | A download redirect had no usable `Location` |
+| `update_begin_failed` | The update slot could not be opened: no second OTA slot, or the image is larger than the slot |
+| `update_write_failed` | A flash write failed during the download |
+| `stream_error` | The connection broke during the download |
+| `download_stalled` | No bytes arrived for `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` |
+| `short_read` | The download ended before its size |
+| `checksum_mismatch` | The SHA-256 of the download did not match the offer |
+| `update_end_failed` | The image failed ESP-IDF's image check, or the boot slot could not be switched |
+| `state_save_failed` | The trial record could not be saved to NVS before the slot switch |
+
+Once a boot has worked out what
 happened to a trial, its `confirmed` or `rolled_back` report goes to an outbox
 in NVS (two slots, oldest dropped first) and never holds up an update. Reports
 are kept until the server answers, across reboots: any HTTP response counts as

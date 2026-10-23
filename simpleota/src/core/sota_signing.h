@@ -1,5 +1,6 @@
 /**
- * sota_signing.h - Ed25519 firmware-signature helpers for the SimpleOTA
+ * @file
+ * @brief Ed25519 firmware-signature helpers for the SimpleOTA
  * clients.
  *
  * Portable (no platform dependencies) so it can be unit-tested on a host
@@ -93,12 +94,15 @@ bool sota_decode_signature_b64(const char *b64, uint8_t out[64]);
  */
 #define SOTA_VERIFIER_MAX_KEYS 2
 
+/** A streaming signature check against each candidate key at once. */
 typedef struct {
-    crypto_check_ed25519_ctx ctx[SOTA_VERIFIER_MAX_KEYS];
-    uint8_t num_keys;
+    crypto_check_ed25519_ctx ctx[SOTA_VERIFIER_MAX_KEYS]; /**< One check per key. */
+    uint8_t num_keys;                                     /**< Checks in use. */
 } sota_sig_verifier_t;
 
 /**
+ * Start checking sig against each of the candidate keys.
+ *
  * @param v         Verifier state (zero-init not required; begin() resets it).
  * @param sig       Raw 64-byte signature from the OTA offer.
  * @param keys      Array of raw 32-byte public keys.

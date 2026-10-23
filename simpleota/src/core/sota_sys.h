@@ -1,5 +1,6 @@
 /**
- * sota_sys.h - time, locking, the confirm timer and the chip watchdog.
+ * @file
+ * @brief Time, locking, the confirm timer and the chip watchdog.
  * Implemented by the platform port (FreeRTOS, esp_timer and wdt_hal on
  * ESP32) and the host tests' fake.
  */
@@ -18,14 +19,17 @@ extern "C" {
 
 struct sota_engine;
 
+/** Block the calling task for ms milliseconds. */
 void sota_sys_sleep_ms(uint32_t ms);
 
 /** Milliseconds since boot; wraps. */
 uint32_t sota_sys_now_ms(void);
 
 /** One lock for every engine. Never held across a network call. */
+/** @{ */
 void sota_sys_lock(void);
 void sota_sys_unlock(void);
+/** @} */
 
 /**
  * Start a one-shot timer that calls sota_engine_timeout_fired(e) after
@@ -50,6 +54,7 @@ void sota_sys_wdt_disarm(void);
  *  running. */
 void sota_sys_wdt_quiesce(void);
 
+/** Restart the chip. */
 SOTA_NORETURN void sota_sys_restart(void);
 
 /** Length of sota_sys_default_device_id()'s string, with its NUL. */

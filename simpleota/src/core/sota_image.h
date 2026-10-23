@@ -1,5 +1,6 @@
 /**
- * sota_image.h - writing an update into the next app slot. Implemented by
+ * @file
+ * @brief Writing an update into the next app slot. Implemented by
  * the platform port (esp_ota_* on ESP32) and the host tests' fake.
  *
  * One write at a time. Nothing here makes the image bootable: the engine

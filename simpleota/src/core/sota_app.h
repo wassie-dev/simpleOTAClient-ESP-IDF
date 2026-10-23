@@ -1,5 +1,6 @@
 /**
- * sota_app.h - what the engine tells the application: events, log lines,
+ * @file
+ * @brief What the engine tells the application: events, log lines,
  * and a wake-up when the confirm timeout fires. Implemented by each
  * client's adapter and by the host tests' fake.
  */
@@ -27,8 +28,9 @@ typedef enum {
     SOTA_EVENT_ROLLING_BACK,      /**< The trial failed; the previous image starts next. */
 } sota_event_id_t;
 
+/** One event, valid only during the sota_app_event() call. */
 typedef struct {
-    sota_event_id_t id;
+    sota_event_id_t id; /**< What happened. */
     const char *reason; /**< A reason token or server status, or NULL. */
     uint32_t build;     /**< The build the event is about, 0 when none. */
     size_t done;        /**< DOWNLOAD_PROGRESS: bytes written. */
@@ -36,31 +38,37 @@ typedef struct {
                              UPDATE_AVAILABLE: the offer's size, 0 when unknown. */
 } sota_event_t;
 
+/** Deliver an event to the application, on the task doing the work.
+ *  user is sota_config_t::user. */
 void sota_app_event(void *user, const sota_event_t *event);
 
 /** The confirm timeout fired, possibly in a timer task: arrange for
  *  sota_engine_service() to run soon on a task that may block. */
 void sota_app_wake(void *user);
 
+/** Log levels, numbered as esp_log_level_t. */
 enum { SOTA_LOG_NONE, SOTA_LOG_ERROR, SOTA_LOG_WARN, SOTA_LOG_INFO, SOTA_LOG_DEBUG };
 
+/** Write one log line at level, printf-style, without a trailing newline.
+ *  The core calls it through the SOTA_LOG* macros. */
 void sota_app_log(int level, const char *fmt, ...)
 #ifdef __GNUC__
     __attribute__((format(printf, 2, 3)))
 #endif
     ;
 
-/* Lines above SOTA_LOG_LEVEL are not compiled in. */
 #ifndef SOTA_LOG_LEVEL
+/** The most detailed level compiled in; lines above it are left out. */
 #define SOTA_LOG_LEVEL SOTA_LOG_INFO
 #endif
 
+/** Log at level when SOTA_LOG_LEVEL includes it. */
 #define SOTA_LOG_AT(level, ...) \
     do { if (SOTA_LOG_LEVEL >= (level)) sota_app_log((level), __VA_ARGS__); } while (0)
-#define SOTA_LOGE(...) SOTA_LOG_AT(SOTA_LOG_ERROR, __VA_ARGS__)
-#define SOTA_LOGW(...) SOTA_LOG_AT(SOTA_LOG_WARN, __VA_ARGS__)
-#define SOTA_LOGI(...) SOTA_LOG_AT(SOTA_LOG_INFO, __VA_ARGS__)
-#define SOTA_LOGD(...) SOTA_LOG_AT(SOTA_LOG_DEBUG, __VA_ARGS__)
+#define SOTA_LOGE(...) SOTA_LOG_AT(SOTA_LOG_ERROR, __VA_ARGS__) /**< Log an error. */
+#define SOTA_LOGW(...) SOTA_LOG_AT(SOTA_LOG_WARN, __VA_ARGS__)  /**< Log a warning. */
+#define SOTA_LOGI(...) SOTA_LOG_AT(SOTA_LOG_INFO, __VA_ARGS__)  /**< Log at info level. */
+#define SOTA_LOGD(...) SOTA_LOG_AT(SOTA_LOG_DEBUG, __VA_ARGS__) /**< Log at debug level. */
 
 #ifdef __cplusplus
 }

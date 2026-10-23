@@ -1,5 +1,6 @@
 /**
- * sota_engine.h - the update engine both clients run: boot validation,
+ * @file
+ * @brief The update engine both clients run: boot validation,
  * check-ins, applying an update, the trial and its confirm or rollback,
  * and the deferred reports.
  *
@@ -28,14 +29,14 @@
 extern "C" {
 #endif
 
-#define SOTA_DEFAULT_CHECK_INTERVAL_S 3600u
-#define SOTA_DEFAULT_CONFIRM_TIMEOUT_S 300u
-#define SOTA_DEFAULT_HTTP_TIMEOUT_MS 15000u
+#define SOTA_DEFAULT_CHECK_INTERVAL_S 3600u  /**< Seconds between check-ins. */
+#define SOTA_DEFAULT_CONFIRM_TIMEOUT_S 300u  /**< Seconds a trial has to confirm. */
+#define SOTA_DEFAULT_HTTP_TIMEOUT_MS 15000u  /**< Per-request timeout. */
 /** Seconds between check-ins during a trial, and while a report waits for
  *  one of its quick retries. */
 #define SOTA_TRIAL_RETRY_INTERVAL_S 10u
 
-/** apply() results. The values are the Arduino client's OTAResult. */
+/** sota_engine_apply() results, the same values as simpleota_result_t. */
 typedef enum {
     SOTA_APPLY_OK = 0,             /**< Flashed; the reboot is next. */
     SOTA_APPLY_CHECKSUM_FAIL = 1,  /**< The download did not match its sha256. */
@@ -47,6 +48,7 @@ typedef enum {
     SOTA_APPLY_DOWNGRADE = 7,      /**< The offer's build is not above the running one. */
 } sota_apply_result_t;
 
+/** What sota_engine_confirm() did. */
 typedef enum {
     SOTA_CONFIRM_DONE,     /**< The trial is over and its report queued. */
     SOTA_CONFIRM_NO_TRIAL, /**< Nothing to confirm, or a rollback is under way. */
@@ -57,7 +59,7 @@ typedef enum {
 typedef struct {
     const char *token;          /**< Project or device token. */
     const char *server_url;     /**< NULL: SOTA_DEFAULT_SERVER_URL. */
-    sota_device_info_t device;
+    sota_device_info_t device;  /**< Sent on every check-in. */
     const char *version_label;  /**< NULL: the stored one. */
     uint32_t image_build;       /**< This image's build, reported when SimpleOTA
                                      did not install it (a USB flash). 0: unknown. */
@@ -70,26 +72,28 @@ typedef struct {
     void *user;                 /**< Passed to sota_net.h and sota_app.h. */
 } sota_config_t;
 
+/** One engine's state. Members are for the core and its tests; adapters
+ *  use the functions below. */
 typedef struct sota_engine {
-    sota_config_t cfg;
-    uint8_t keys[SOTA_VERIFIER_MAX_KEYS][32];
-    char key_ids[SOTA_VERIFIER_MAX_KEYS][64];
-    uint8_t num_keys;
+    sota_config_t cfg;          /**< As given to sota_engine_init(). */
+    uint8_t keys[SOTA_VERIFIER_MAX_KEYS][32];  /**< Pinned Ed25519 keys. */
+    char key_ids[SOTA_VERIFIER_MAX_KEYS][64];  /**< Their key ids, empty when none. */
+    uint8_t num_keys;           /**< Keys pinned. */
 
     sota_state_t st;            /**< As stored, kept current. */
     sota_outbox_t outbox;       /**< Guarded by sota_sys_lock(). */
     uint32_t report_failures;   /**< Report sends with no response this boot. */
 
     sota_offer_t offer;         /**< offer.url is heap, NULL without an offer. */
-    bool has_offer;
+    bool has_offer;             /**< offer holds an update from the last check. */
     bool last_check_ok;         /**< The last check-in got a 2xx. */
-    bool validated;
-    bool auth_warned;
+    bool validated;             /**< sota_engine_validate_boot() has run. */
+    bool auth_warned;           /**< A rejected token was logged once. */
     uint32_t refused_build;     /**< The offer last refused as a downgrade, */
     char refused_dep[sizeof(((sota_offer_t *)0)->deployment)]; /**< reported once per boot. */
 
-    void *timer;
-    volatile bool in_trial;
+    void *timer;                /**< The confirm timer, from sota_sys_timer_start(). */
+    volatile bool in_trial;     /**< The running image is an unconfirmed trial. */
     volatile bool ending;          /**< A confirm or rollback has claimed the trial. */
     volatile bool timeout_pending; /**< The confirm timeout fired, not handled yet. */
 } sota_engine_t;

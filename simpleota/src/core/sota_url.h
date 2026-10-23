@@ -1,5 +1,6 @@
 /**
- * sota_url.h - the URLs the client may use: the server base URL for
+ * @file
+ * @brief The URLs the client may use: the server base URL for
  * check-ins and status posts, and where a download redirect may lead.
  * Everything is https://; the offer's own download URL is checked on the
  * apply path.
@@ -14,14 +15,16 @@
 #include <stddef.h>
 #include <string.h>
 
+/** The SimpleOTA platform, used when the application sets no base URL. */
 #define SOTA_DEFAULT_SERVER_URL "https://simpleota.com"
 /** Longest base URL accepted, without the terminating NUL. */
 #define SOTA_SERVER_URL_MAX_LEN 256u
 
+/** Why a server URL was accepted or refused. */
 typedef enum {
-    SOTA_URL_OK = 0,
-    SOTA_URL_NOT_HTTPS = 1,
-    SOTA_URL_MALFORMED = 2,
+    SOTA_URL_OK = 0,        /**< Usable. */
+    SOTA_URL_NOT_HTTPS = 1, /**< A plain http:// URL. */
+    SOTA_URL_MALFORMED = 2, /**< Empty, too long, no host, or bad characters. */
 } sota_url_status_t;
 
 /** True when url starts with scheme, ignoring the case of the URL. */
@@ -34,7 +37,8 @@ static inline bool sota_url_has_scheme(const char *url, const char *scheme)
     return true;
 }
 
-/* No spaces or control characters, which could split a request line. */
+/** True when url has no spaces or control characters, which could split
+ *  a request line. */
 static inline bool sota_url_chars_ok(const char *url)
 {
     for (; *url; ++url) {
@@ -61,6 +65,7 @@ static inline sota_url_status_t sota_validate_server_url(const char *url)
     return (slash ? (size_t)(slash - url) : len) == 8u ? SOTA_URL_MALFORMED : SOTA_URL_OK;
 }
 
+/** The status as a short token for logs: "ok", "not_https" or "malformed". */
 static inline const char *sota_url_status_name(int status)
 {
     if (status == SOTA_URL_NOT_HTTPS) return "not_https";

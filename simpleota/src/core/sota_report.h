@@ -1,5 +1,6 @@
 /**
- * sota_report.h - delivery and polling policy for deferred status reports.
+ * @file
+ * @brief Delivery and polling policy for deferred status reports.
  *
  * "confirmed" and "rolled_back" are telemetry. What the server says about
  * them never changes what the device does. A report is delivered once the
@@ -59,20 +60,22 @@ static inline uint32_t sota_poll_interval_s(bool connected, bool in_trial,
  * overwrites a report that has not been sent. Stored as one NVS blob. When
  * full, the oldest report makes room for the new one.
  */
-#define SOTA_OUTBOX_VERSION 1u
-#define SOTA_OUTBOX_SLOTS 2u
+#define SOTA_OUTBOX_VERSION 1u /**< Layout of the stored outbox blob. */
+#define SOTA_OUTBOX_SLOTS 2u   /**< Reports the outbox holds. */
 
+/** One status report waiting to be sent. Part of the stored blob. */
 typedef struct {
     char event[12];      /**< "confirmed" or "rolled_back". */
     char reason[24];     /**< Empty when the event has none. */
-    char deployment[64];
-    uint32_t build;
+    char deployment[64]; /**< The deployment the report is about. */
+    uint32_t build;      /**< The build the report is about. */
 } sota_report_t;
 
+/** The outbox, oldest report first. Stored as one blob. */
 typedef struct {
     uint8_t version;     /**< SOTA_OUTBOX_VERSION. */
-    uint8_t count;
-    sota_report_t reports[SOTA_OUTBOX_SLOTS];
+    uint8_t count;       /**< Reports in use. */
+    sota_report_t reports[SOTA_OUTBOX_SLOTS]; /**< The reports, oldest first. */
 } sota_outbox_t;
 
 /** Copy src into a fixed field. Returns false when it does not fit. */
@@ -85,12 +88,14 @@ static inline bool sota_copy_field(char *dst, size_t cap, const char *src)
     return true;
 }
 
+/** Empty the outbox. */
 static inline void sota_outbox_init(sota_outbox_t *box)
 {
     memset(box, 0, sizeof(*box));
     box->version = SOTA_OUTBOX_VERSION;
 }
 
+/** True when field has a NUL within cap bytes. */
 static inline bool sota_field_terminated(const char *field, size_t cap)
 {
     return memchr(field, '\0', cap) != NULL;

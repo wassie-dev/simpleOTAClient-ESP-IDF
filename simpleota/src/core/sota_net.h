@@ -1,5 +1,6 @@
 /**
- * sota_net.h - HTTP, implemented by each client's adapter (HTTPClient on
+ * @file
+ * @brief HTTP, implemented by each client's adapter (HTTPClient on
  * Arduino, esp_http_client on ESP-IDF) and by the host tests' fake.
  *
  * user is the sota_config_t's user pointer, so an adapter can keep its TLS

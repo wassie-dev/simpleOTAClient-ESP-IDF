@@ -1,5 +1,6 @@
 /**
- * sota_trial.h - what a boot means for a saved trial record.
+ * @file
+ * @brief What a boot means for a saved trial record.
  *
  * The trial record uses NVS keys that every release of both clients reads
  * and writes: sota_trial (1 = trial, 3 = a trial whose image has booted,
@@ -29,6 +30,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/** What a boot means for the saved trial record, and what to do about it. */
 typedef enum {
     SOTA_BOOT_NONE = 0,       /**< No trial record. */
     SOTA_BOOT_TRIAL,          /**< Running the new image: supervise it. */
@@ -44,7 +46,7 @@ typedef enum {
 /** sota_trial values. */
 enum {
     SOTA_TRIAL_STAGED = 1, /**< The new image has not booted yet. */
-    SOTA_TRIAL_ROLLED_BACK = 2,
+    SOTA_TRIAL_ROLLED_BACK = 2, /**< A rollback was decided and saved. */
     SOTA_TRIAL_BOOTED = 3, /**< The new image booted once; any reset ends the trial. */
 };
 
@@ -54,10 +56,11 @@ enum {
  * live identity with the new build's.
  */
 enum {
-    SOTA_STAGED_STARTED = 1,
-    SOTA_STAGED_SNAPSHOT = 2,
+    SOTA_STAGED_STARTED = 1,  /**< The record is being written. */
+    SOTA_STAGED_SNAPSHOT = 2, /**< The previous image's identity is saved. */
 };
 
+/** The trial record and the boot's facts that sota_classify_boot() reads. */
 typedef struct {
     uint8_t trial;          /**< sota_trial. */
     uint8_t staged;         /**< sota_staged, 0 when missing. */
@@ -68,14 +71,16 @@ typedef struct {
     bool deep_sleep_wake;   /**< This boot is a wake from deep sleep. */
 } sota_boot_facts_t;
 
-/* Whether the running image is the update's, from sota_new_part or else
- * sota_prev_part. False when neither is known. */
+/** Whether the running image is the update's, from sota_new_part or else
+ *  sota_prev_part. False when neither is known. */
 static inline bool sota_on_new_image(const sota_boot_facts_t *f)
 {
     if (f->new_part != 0) return f->running_part == f->new_part;
     return f->prev_part != 0 && f->running_part != f->prev_part;
 }
 
+/** Classify this boot against the trial record. Pure, so the host tests
+ *  cover every power-cut point. */
 static inline sota_boot_outcome_t sota_classify_boot(const sota_boot_facts_t *f)
 {
     /* sota_staged is written first and sota_trial last, so staged with no

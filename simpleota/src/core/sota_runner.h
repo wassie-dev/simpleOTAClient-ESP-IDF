@@ -1,5 +1,6 @@
 /**
- * sota_runner.h - the managed task, implemented by the port (FreeRTOS on
+ * @file
+ * @brief The managed task, implemented by the port (FreeRTOS on
  * ESP32): it checks in on the engine's schedule, applies what is offered,
  * and runs the confirm timeout's rollback. Both clients' managed modes are
  * this task, so they start, stop and supervise a trial the same way.
@@ -17,13 +18,15 @@
 extern "C" {
 #endif
 
+/** The managed task's settings and state. Fill the public fields, zero the
+ *  private ones, then call sota_runner_start(). */
 typedef struct {
-    sota_engine_t *engine;
+    sota_engine_t *engine;          /**< The engine it drives. */
     uint32_t initial_delay_ms;      /**< Before the first check, unless a confirm timeout is due. */
     bool (*is_connected)(void *ctx); /**< NULL: always connected. */
-    void *ctx;
+    void *ctx;                      /**< Passed to is_connected. */
     uint32_t stack_size;            /**< Also for the rollback task without a runner. */
-    unsigned priority;
+    unsigned priority;              /**< The task's priority. */
     void *volatile task;            /**< Private: the running task, or NULL. */
     volatile bool stop;             /**< Private: asked to stop. */
 } sota_runner_t;

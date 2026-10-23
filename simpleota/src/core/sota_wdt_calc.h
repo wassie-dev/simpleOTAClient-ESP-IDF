@@ -1,5 +1,6 @@
 /**
- * sota_wdt_calc.h - deadline maths for the chip watchdog that resets a hung
+ * @file
+ * @brief Deadline maths for the chip watchdog that resets a hung
  * trial.
  *
  * During a SimpleOTA trial the RTC (or LP) watchdog runs on the chip's slow

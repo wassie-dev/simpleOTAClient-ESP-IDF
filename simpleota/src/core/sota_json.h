@@ -1,5 +1,6 @@
 /**
- * sota_json.h - minimal flat-JSON value extraction for SimpleOTA responses.
+ * @file
+ * @brief Minimal flat-JSON value extraction for SimpleOTA responses.
  *
  * Finds a "key" among the top-level object's members and reads its string /
  * bool / unsigned value. Keys inside nested objects and arrays are not
@@ -25,8 +26,8 @@ extern "C" {
 #endif
 
 /**
- * Extract a string value. Decodes \n, \t and \r; any other backslash
- * escape yields the character after it (\uXXXX is not decoded).
+ * Extract a string value. Decodes `\n`, `\t` and `\r`; any other backslash
+ * escape yields the character after it (`\uXXXX` is not decoded).
  * @return true only when the key exists, is a string, AND the decoded value
  *         fits in out_cap-1 bytes (an oversized value fails loudly rather
  *         than truncating, so a clipped URL can never half-work).
@@ -35,9 +36,9 @@ bool sota_json_get_string(const char *json, const char *key, char *out,
                           size_t out_cap);
 
 /**
- * Write src as the inside of a JSON string: '"' and '\\' are escaped, \n, \r
- * and \t become escapes, and other control characters are dropped, as the
- * Arduino client has always done.
+ * Write src as the inside of a JSON string: `"` and `\` are escaped,
+ * newline, carriage return and tab become escapes, and other control
+ * characters are dropped.
  * @return true when the result and its terminating NUL fit in out_cap.
  */
 bool sota_json_escape(const char *src, char *out, size_t out_cap);

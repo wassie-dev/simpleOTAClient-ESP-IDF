@@ -1,5 +1,6 @@
 /**
- * sota_state.h - everything a client persists, and the order it is written.
+ * @file
+ * @brief Everything a client persists, and the order it is written.
  *
  * These keys are a contract with every release in the field:
  * docs/NVS_CONTRACT.md has the rules for changing them.
@@ -52,23 +53,23 @@ extern "C" {
 /** What the device reports itself as running. Zero and empty are valid: the
  *  state before the first update. */
 typedef struct {
-    uint32_t build;
-    char hash[SOTA_HASH_HEX_LEN + 1];
-    char version[SOTA_VERSION_MAX + 1];
+    uint32_t build;                     /**< SimpleOTA build number, 0 for none. */
+    char hash[SOTA_HASH_HEX_LEN + 1];   /**< The image's sha256 hex, as offered. */
+    char version[SOTA_VERSION_MAX + 1]; /**< Display version label. */
 } sota_identity_t;
 
 /** Everything persisted except the outbox, as loaded at boot. */
 typedef struct {
-    sota_identity_t live;
-    uint8_t trial;
-    uint8_t staged;
-    uint32_t new_part;
-    uint32_t prev_part;
-    sota_identity_t prev;
+    sota_identity_t live;  /**< sota_build, sota_hash, sota_version: what runs. */
+    uint8_t trial;         /**< sota_trial, 0 when missing. */
+    uint8_t staged;        /**< sota_staged, 0 when missing. */
+    uint32_t new_part;     /**< sota_new_part: the update's slot. */
+    uint32_t prev_part;    /**< sota_prev_part: the previous image's slot. */
+    sota_identity_t prev;  /**< sota_prev_*: the identity a rollback restores. */
     char deployment[64];   /**< sota_fail_dep; the size of sota_report_t's */
     uint32_t report_build; /**< sota_fail_build */
-    uint8_t conf_pend;
-    char rb_reason[24];
+    uint8_t conf_pend;     /**< sota_conf_pend */
+    char rb_reason[24];    /**< sota_rb_reason, empty when missing. */
     char image_id[17];     /**< sota_image */
 } sota_state_t;
 

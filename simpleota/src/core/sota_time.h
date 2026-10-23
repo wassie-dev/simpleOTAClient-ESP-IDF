@@ -1,5 +1,6 @@
 /**
- * sota_time.h - duration to FreeRTOS tick conversion.
+ * @file
+ * @brief Duration to FreeRTOS tick conversion.
  *
  * pdMS_TO_TICKS() multiplies in 32 bits, so long durations wrap: past
  * about 71 minutes at a 1000 Hz tick rate, or about 11.9 hours at 100 Hz.

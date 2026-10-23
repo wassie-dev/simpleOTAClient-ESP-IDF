@@ -1,5 +1,6 @@
 /**
- * sota_protocol.h - the SimpleOTA HTTP API's request bodies and the check
+ * @file
+ * @brief The SimpleOTA HTTP API's request bodies and the check
  * response.
  *
  *   POST /api/v1/ota/check/   check-in; the response may offer an update
@@ -23,39 +24,40 @@
 extern "C" {
 #endif
 
-#define SOTA_PATH_CHECK "/api/v1/ota/check/"
-#define SOTA_PATH_STATUS "/api/v1/ota/status/"
+#define SOTA_PATH_CHECK "/api/v1/ota/check/"   /**< Check-in path, after the base URL. */
+#define SOTA_PATH_STATUS "/api/v1/ota/status/" /**< Status-event path, after the base URL. */
 
 /** What the device says about itself on every check-in. NULL members are
  *  left out of the body; device_id, framework and chip_family are required. */
 typedef struct {
-    const char *device_id;
+    const char *device_id;          /**< Stable per-unit identifier. */
     const char *framework;          /**< "arduino" or "esp_idf" */
     const char *chip_family;        /**< "esp32", "esp32s3", ... */
-    const char *board_id;
-    const char *hardware_revision;
-    const char *partition_profile;
-    const char *channel;
+    const char *board_id;           /**< Board model. */
+    const char *hardware_revision;  /**< Board revision. */
+    const char *partition_profile;  /**< Partition layout name. */
+    const char *channel;            /**< Release channel. */
     const char *security_mode;      /**< "basic", "token" or "signed" */
     const char *labels_json;        /**< A JSON object, embedded verbatim. */
-    uint8_t nvs_schema_version;
+    uint8_t nvs_schema_version;     /**< On-device data schema the firmware expects. */
 } sota_device_info_t;
 
 /** An update the server offered. */
 typedef struct {
     char *url;                      /**< Caller's buffer: pre-signed URLs run to 1.5 KB. */
-    size_t url_cap;
+    size_t url_cap;                 /**< Size of the url buffer. */
     char checksum[SOTA_HASH_HEX_LEN + 1]; /**< sha256 hex, lowercased */
     char deployment[64];            /**< Empty when the server sent none. */
     char version[SOTA_VERSION_MAX + 1];   /**< Empty when absent or too long. */
     char key_id[64];                /**< signing_key_id, empty when absent. */
-    uint32_t build;
+    uint32_t build;                 /**< The build number SimpleOTA assigned. */
     uint32_t size;                  /**< 0 when the server sent none. */
     bool signed_offer;              /**< security_mode is "signed". */
     bool has_signature;             /**< signature decoded to 64 ed25519 bytes. */
-    uint8_t signature[64];
+    uint8_t signature[64];          /**< The raw signature, when has_signature. */
 } sota_offer_t;
 
+/** What a check response says. */
 typedef enum {
     SOTA_CHECK_NO_UPDATE,   /**< update_available is false or missing. */
     SOTA_CHECK_OFFER,       /**< *offer holds an update. */

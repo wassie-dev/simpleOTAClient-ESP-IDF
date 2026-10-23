@@ -231,7 +231,7 @@ confirms the trial itself once Wi-Fi is up; the log shows `running build N
 |---|---|
 | Deploy a build that is older than, or the same as, the one the board runs | Nothing is downloaded; `failed` / `downgrade_refused` (`SIMPLEOTA_DOWNGRADE` in `examples/polling`) |
 | Serial-flash a different build over one SimpleOTA installed, with `image_build` left at 0 | The log warns `running an image SimpleOTA did not install; reporting build 0`, and the server offers the board its current release |
-| The same, with **SimpleOTA build number of this image** set in menuconfig to a build the server already has | The board reports that build and is not offered it again |
+| The same, with `.image_build` in `main.c` set to the build number SimpleOTA gave that exact `.bin` | The board reports that build and is not offered it again |
 | Serial-flash the same `.bin` that SimpleOTA installed | No warning; the board keeps its build |
 
 ## Getting back to Arduino

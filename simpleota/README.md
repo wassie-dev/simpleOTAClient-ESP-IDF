@@ -117,7 +117,7 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | `labels_json` | omitted | Reserved: sent verbatim on check-ins, not yet consumed by the platform. Left out, with a warning, when it is not one JSON object |
 | `security_mode` | omitted | `SIMPLEOTA_SECURITY_SIGNED` to enforce signed firmware |
 | `version_label` | last persisted | Display-only version string |
-| `image_build` | 0 | This image's build number, reported when it was flashed some other way than SimpleOTA, such as over USB. See [Anti-rollback](#anti-rollback) |
+| `image_build` | 0 | Leave at 0 unless you flash release images over USB. See [When to set `image_build`](#when-to-set-image_build) |
 | `nvs_schema_version` | 1 | On-device data schema the firmware expects |
 | `check_interval_s` | 3600 | Steady-state poll interval |
 | `initial_delay_ms` | 0 | Delay before the first check after `simpleota_start()` |
@@ -223,12 +223,35 @@ An offer whose build number is not above the running build is refused
 signature still verifies and old builds can carry fixed bugs. To go back,
 release the old code under a new, higher build number.
 
-The running build is the one stored with the image SimpleOTA installed: an
-image flashed some other way, such as over serial, reports the build in
-`image_build`, or 0 when that is not set, so a device reused for another
-project takes that project's builds. Set `image_build` in release firmware
-you may also flash over USB, so the server does not replace it with an older
-release.
+The running build is the one stored with the image SimpleOTA installed. An
+image flashed some other way, such as over serial, reports build 0, so the
+server offers it the current release and a device reused for another
+project takes that project's builds.
+
+### When to set `image_build`
+
+Most projects never need it. Leave it at 0 while you develop and test, and
+whenever devices only get firmware from SimpleOTA.
+
+It is for one situation: you flash a **release** image over USB, such as at
+the factory or when re-flashing a unit in the field, and the same file is
+also a SimpleOTA upload. Without it the device reports build 0, so on its
+first check-in the server sends it the current release again, or an older
+one if that is what its deployment targets. With it, the device reports the
+build it actually runs and is left alone.
+
+To use it:
+
+1. Look up the project's last build number on the dashboard, say 41.
+   SimpleOTA numbers each upload one above the last, so the next upload
+   will be 42.
+2. Set `.image_build = 42` and build.
+3. Upload that exact `.bin` to SimpleOTA, and check that it got build 42.
+4. Flash the same `.bin` over USB.
+
+If the number is wrong, the device reports a build it does not run. Set too
+high, it is not offered any build up to that number, so set it back to 0 in
+the next upload whenever you are not sure.
 
 ## Partition table
 
@@ -453,7 +476,8 @@ what behaves differently:
 - An offer whose build is not above the running one is refused
   (`downgrade_refused`). See [Anti-rollback](#anti-rollback).
 - An image flashed over USB reports build 0, so the server offers it its
-  current release. Set `image_build` to keep it. Before, it kept reporting
+  current release (see [When to set `image_build`](#when-to-set-image_build)
+  if you flash release images over USB). Before, it kept reporting
   the build SimpleOTA last installed.
 - `manual_confirm` applies to managed mode only. Without
   `simpleota_start()`, call `simpleota_confirm()` yourself.

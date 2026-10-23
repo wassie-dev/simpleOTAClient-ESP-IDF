@@ -73,8 +73,6 @@ void app_main(void) {
         .token = CONFIG_EXAMPLE_SIMPLEOTA_TOKEN,
         /* device_id defaults to the Wi-Fi MAC; chip_family to this target. */
         .board_id = "esp32-devkitc",
-        /* Reported only when this image was flashed over USB; see menuconfig. */
-        .image_build = CONFIG_EXAMPLE_IMAGE_BUILD,
         .check_interval_s = 300, /* fast-ish for a demo; default is 3600 */
         .event_cb = on_ota_event,
         .is_connected = is_connected,

@@ -7,8 +7,8 @@
  * In polling mode the app must call simpleota_confirm(): an update that is
  * never confirmed rolls back after the confirm timeout.
  *
- * Configure Wi-Fi credentials, the token and this image's build number via
- * `idf.py menuconfig` (Example Configuration).
+ * Configure Wi-Fi credentials and the token via `idf.py menuconfig`
+ * (Example Configuration).
  */
 
 #include <inttypes.h>
@@ -68,7 +68,6 @@ void app_main(void) {
      * back a hang. */
     simpleota_config_t cfg = {
         .token = CONFIG_EXAMPLE_SIMPLEOTA_TOKEN,
-        .image_build = CONFIG_EXAMPLE_IMAGE_BUILD,
         .confirm_timeout_s = 120,
     };
     ESP_ERROR_CHECK(simpleota_init(&cfg));

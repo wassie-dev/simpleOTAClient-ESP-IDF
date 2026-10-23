@@ -9,7 +9,7 @@ The update logic is now [SimpleOTAClient-core](https://github.com/wassie-dev/sim
 - **Devices update from 0.2.x over the air**, mid-trial too. The NVS keys and their meanings are unchanged, and a trial that fails returns to the old release, which reads the rollback as it always has. 1.0.0 adds one key, `sota_image`, which older releases ignore.
 - **Existing code compiles unchanged.** Every 0.2.x function and config field is still there.
 - **Older builds are refused**: an offer whose build is not above the running one fails with `downgrade_refused`. To go back, release the old code under a new, higher build number.
-- **An image flashed over USB reports build 0**, so the server offers it its current release. Set `image_build` to keep it. Before, it kept reporting the build SimpleOTA last installed.
+- **An image flashed over USB reports build 0**, so the server offers it its current release. Firmware that is flashed over USB as a release can declare its build in `image_build`; see the README for when to. Before, it kept reporting the build SimpleOTA last installed.
 - **Without `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, new images run as trials** and roll back on any reset before they are confirmed. Confirm before restarting on purpose, or turn `CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK` off to accept a new image on its first boot, as 0.2.x did.
 - A `base_url` that is not `https://` fails `simpleota_init()` with `ESP_ERR_INVALID_ARG`.
 - `manual_confirm` applies to managed mode only. Without `simpleota_start()`, call `simpleota_confirm()` yourself.

@@ -286,7 +286,7 @@ typedef char sota_image_id_fits_state[
 /* Note the running image. One that changed with no update to account for
  * it came another way: a serial flash, perhaps of another project, so the
  * stored build no longer describes it. It reports the build it declares,
- * or 0, or a stored build above its own would refuse every offer. */
+ * or 0: a stored build above its own would refuse every offer. */
 static void note_image(sota_engine_t *e, const sota_boot_info_t *info,
                        sota_boot_outcome_t outcome)
 {

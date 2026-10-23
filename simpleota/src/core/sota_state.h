@@ -1,6 +1,9 @@
 /**
  * sota_state.h - everything a client persists, and the order it is written.
  *
+ * These keys are a contract with every release in the field:
+ * docs/NVS_CONTRACT.md has the rules for changing them.
+ *
  * Keys in the store (sota_kv.h). Names and meanings are the ones every
  * earlier release of both clients reads and writes:
  *

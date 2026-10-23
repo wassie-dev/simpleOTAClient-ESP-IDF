@@ -115,7 +115,7 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | `labels_json` | omitted | Reserved: sent verbatim on check-ins, not yet consumed by the platform |
 | `security_mode` | omitted | `SIMPLEOTA_SECURITY_SIGNED` to enforce signed firmware |
 | `version_label` | last persisted | Display-only version string |
-| `image_build` | 0 | This image's build number, reported when it was flashed some other way than SimpleOTA, such as over USB. See [TLS](#tls) |
+| `image_build` | 0 | This image's build number, reported when it was flashed some other way than SimpleOTA, such as over USB. See [Anti-rollback](#anti-rollback) |
 | `nvs_schema_version` | 1 | On-device data schema the firmware expects |
 | `check_interval_s` | 3600 | Steady-state poll interval |
 | `initial_delay_ms` | 0 | Delay before the first check after `simpleota_start()` |
@@ -211,6 +211,20 @@ the previous image the trial may still return to.
 Confirmation is automatic on the first successful check-in. If your
 application has its own health checks, set `.manual_confirm = true` and call
 `simpleota_confirm()` once they pass.
+
+## Anti-rollback
+
+An offer whose build number is not above the running build is refused
+(`downgrade_refused`, `SIMPLEOTA_DOWNGRADE`), because an old image's
+signature still verifies and old builds can carry fixed bugs. To go back,
+release the old code under a new, higher build number.
+
+The running build is the one stored with the image SimpleOTA installed: an
+image flashed some other way, such as over serial, reports the build in
+`image_build`, or 0 when that is not set, so a device reused for another
+project takes that project's builds. Set `image_build` in release firmware
+you may also flash over USB, so the server does not replace it with an older
+release.
 
 ## Partition table
 
@@ -346,16 +360,6 @@ prefer. Everything is HTTPS: a `base_url` that is not `https://` fails
 `simpleota_init()`, a plain HTTP download URL is refused (`insecure_url`),
 and a download follows up to three redirects, each only to another
 `https://` URL (`redirect_not_https` otherwise).
-
-Anti-rollback: an offer whose build number is not above the running build
-is refused (`downgrade_refused`, `SIMPLEOTA_DOWNGRADE`), because an old
-image's signature still verifies and old builds can carry fixed bugs. To go
-back, release the old code under a new, higher build number. The running
-build is the one stored with the image SimpleOTA installed: an image flashed
-some other way, such as over serial, reports `image_build`, or build 0 when
-that is not set, so a device reused for another project takes that project's
-builds. Set `image_build` in release firmware you may also flash over USB,
-so the server does not replace it with an older release.
 
 ### Task watchdog warnings during the handshake
 

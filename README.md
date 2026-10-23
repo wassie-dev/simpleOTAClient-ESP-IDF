@@ -26,10 +26,10 @@ install-to-first-OTA walkthrough.
 
 The update logic lives in
 [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) and
-is copied into `simpleota/src/core` as plain files, with its host tests there.
-To move to another core commit, check it out beside this repository and run
-`../SimpleOTAClient-core/scripts/sync-core.sh simpleota/src/core`; CI fails
-when the copy differs from the commit in `simpleota/src/core/CORE_VERSION`.
+is copied into `simpleota/src/core` as plain files; its host tests live in
+the core repository. To move to another core tag or commit, run
+`scripts/update-core.sh <ref>` and commit the result. CI fails when the copy
+differs from the commit in `simpleota/src/core/CORE_VERSION`.
 
 **Releasing** (mirrors SimpleOTAClient-Arduino): bump `version:` in
 [simpleota/idf_component.yml](simpleota/idf_component.yml) and merge to

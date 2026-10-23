@@ -192,8 +192,10 @@ Use `examples/signed` instead of `examples/basic`, with the same steps as above
 
 ## 10. Test rollback (optional)
 
-Rollback needs `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, which the examples
-set. Deploy a known-good build first, then deploy each of these test builds
+The examples set `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`. Run the table once
+with it, and once with it removed from `sdkconfig.defaults` (after
+`idf.py fullclean` and a serial flash of the new bootloader), where the
+component rolls back in software and every row must end the same way. Deploy a known-good build first, then deploy each of these test builds
 from it and watch the log and the dashboard. Adding
 `.confirm_timeout_s = 60` to the config in `main.c` keeps the waits short.
 
@@ -208,7 +210,7 @@ from it and watch the log and the dashboard. Adding
 
 Unplugging during the download leaves the known-good build running, and it
 downloads the update again on a later check. Run the table once on a board
-that still has 0.1.0, so the first update into this release is covered too.
+that still has 0.2.1, so the first update into this release is covered too.
 If your devices deep-sleep, also put a test build to sleep before it
 confirms: it should wake on the known-good build with `rolled_back` /
 `deep_sleep`. See the main

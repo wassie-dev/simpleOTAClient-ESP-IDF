@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "sdkconfig.h"
@@ -33,15 +34,21 @@ static void client_config(const sota_net_idf_t *n, const char *url,
 int sota_net_post(void *user, const char *url, const char *token, const char *body,
                   char *resp, size_t cap)
 {
-    char auth[192];
-    int n = snprintf(auth, sizeof(auth), "Bearer %s", token);
-    if (n <= 0 || (size_t)n >= sizeof(auth)) return -1;
+    /* Sized to the token: a fixed buffer would fail every request for a
+     * long token as if the network were down. */
+    size_t auth_len = strlen("Bearer ") + strlen(token) + 1;
+    char *auth = malloc(auth_len);
+    if (!auth) return -1;
+    snprintf(auth, auth_len, "Bearer %s", token);
 
     esp_http_client_config_t cfg;
     client_config((const sota_net_idf_t *)user, url, &cfg);
     cfg.method = HTTP_METHOD_POST;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    if (!c) return -1;
+    if (!c) {
+        free(auth);
+        return -1;
+    }
     esp_http_client_set_header(c, "Authorization", auth);
     esp_http_client_set_header(c, "Content-Type", "application/json");
 
@@ -60,6 +67,7 @@ int sota_net_post(void *user, const char *url, const char *token, const char *bo
         if (resp && cap) resp[total] = '\0';
     }
     esp_http_client_cleanup(c);
+    free(auth);
     return status;
 }
 

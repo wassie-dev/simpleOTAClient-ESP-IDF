@@ -337,8 +337,10 @@ uint32_t simpleota_current_build(void) { return s.engine.st.live.build; }
 
 esp_err_t simpleota_deinit(void)
 {
-    if (s.task) simpleota_stop();
-    if (s.initialized) sota_engine_deinit(&s.engine);
+    /* A task still in a long download uses the strings below. */
+    if (s.task && simpleota_stop() != ESP_OK) return ESP_ERR_TIMEOUT;
+    /* Also after a failed init, which may have set the engine up. */
+    sota_engine_deinit(&s.engine);
     for (int i = 0; i < STR_COUNT; ++i) free(s.str[i]);
     if (s.stopped_sem) vSemaphoreDelete(s.stopped_sem);
     memset(&s, 0, sizeof(s));

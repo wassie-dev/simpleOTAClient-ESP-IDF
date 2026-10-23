@@ -26,8 +26,9 @@
  *
  * Both ship with the first serial flash and cannot change over OTA. Without
  * bootloader rollback the component rolls a failed trial back itself
- * (CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK), but cannot catch a crash that comes
- * before simpleota_init().
+ * (CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK): on the confirm timeout, or on any
+ * reset before the confirm, as the bootloader would. It cannot catch an
+ * image that crashes before simpleota_init() on every boot.
  *
  * The component is a process-wide singleton (one instance per device);
  * a second simpleota_init() returns ESP_ERR_INVALID_STATE.
@@ -178,7 +179,8 @@ bool simpleota_is_trial_boot(void);
 /** The build number this device currently reports (0 = none yet). */
 uint32_t simpleota_current_build(void);
 
-/** Stop (if needed) and release all resources. Mainly for tests. */
+/** Stop (if needed) and release all resources. Mainly for tests.
+ *  ESP_ERR_TIMEOUT when the task did not stop; nothing is released then. */
 esp_err_t simpleota_deinit(void);
 
 #ifdef __cplusplus

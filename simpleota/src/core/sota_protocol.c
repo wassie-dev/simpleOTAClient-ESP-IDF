@@ -93,7 +93,8 @@ bool sota_protocol_check_body(const sota_device_info_t *dev, const sota_identity
     put_opt_str(&w, "channel", dev->channel);
     put_opt_str(&w, "version_label", version_label);
     put_opt_str(&w, "current_hash", live->hash);
-    if (dev->labels_json && dev->labels_json[0]) {
+    /* Anything but one object could break out of the member. */
+    if (dev->labels_json && sota_json_is_object(dev->labels_json)) {
         put_key(&w, "labels");
         put(&w, dev->labels_json);
     }

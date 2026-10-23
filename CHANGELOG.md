@@ -35,6 +35,8 @@
   download.
 - Server responses are read from their top-level fields only, and numbers
   too large for 32 bits are refused.
+- Labels that are not one JSON object are left out of the check-in with a
+  warning, instead of making every check-in invalid.
 - About 1 KB less flash and 100 bytes less static RAM on the ESP32.
 
 ## 0.2.1

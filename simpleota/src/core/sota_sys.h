@@ -48,6 +48,16 @@ void sota_sys_wdt_quiesce(void);
 
 SOTA_NORETURN void sota_sys_restart(void);
 
+/** Length of sota_sys_default_device_id()'s string, with its NUL. */
+#define SOTA_DEVICE_ID_LEN 18
+
+/**
+ * The device ID used when the application gives none: the Wi-Fi station
+ * MAC as "aa:bb:cc:dd:ee:ff", the same on both clients, so a device keeps
+ * its identity when it moves from one to the other.
+ */
+void sota_sys_default_device_id(char out[SOTA_DEVICE_ID_LEN]);
+
 #ifdef __cplusplus
 }
 #endif

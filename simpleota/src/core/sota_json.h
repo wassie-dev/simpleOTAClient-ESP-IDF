@@ -42,6 +42,14 @@ bool sota_json_get_string(const char *json, const char *key, char *out,
  */
 bool sota_json_escape(const char *src, char *out, size_t out_cap);
 
+/**
+ * True when s is one JSON object whose brackets pair up and whose strings
+ * close, nested at most 8 deep, with nothing after it: something that can
+ * go into a request body as a member's value without breaking out of it.
+ * Not a full validator.
+ */
+bool sota_json_is_object(const char *s);
+
 /** True when the key is present, whatever its value. */
 bool sota_json_has_key(const char *json, const char *key);
 

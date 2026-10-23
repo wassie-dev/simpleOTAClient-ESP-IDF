@@ -43,6 +43,35 @@ static bool json_find_value(const char *s, const char *key, size_t *val_start) {
     return false;
 }
 
+bool sota_json_is_object(const char *s) {
+    if (!s) return false;
+    while (is_space(*s)) ++s;
+    if (*s != '{') return false;
+    char open[8];
+    int depth = 0;
+    for (; *s; ++s) {
+        char c = *s;
+        if (c == '"') {
+            for (++s; *s != '"'; ++s) {
+                if ((unsigned char)*s < 0x20u) return false; /* also the end */
+                if (*s == '\\' && !*++s) return false;
+            }
+        } else if (c == '{' || c == '[') {
+            if (depth == (int)sizeof(open)) return false;
+            open[depth++] = c;
+        } else if (c == '}' || c == ']') {
+            if (depth == 0 || open[--depth] != (c == '}' ? '{' : '[')) return false;
+            if (depth == 0) {
+                for (++s; is_space(*s); ++s) {}
+                return *s == '\0';
+            }
+        } else if ((unsigned char)c < 0x20u && !is_space(c)) {
+            return false;
+        }
+    }
+    return false;
+}
+
 bool sota_json_has_key(const char *json, const char *key) {
     size_t p;
     return json_find_value(json, key, &p);

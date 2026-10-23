@@ -10,6 +10,7 @@
 
 #include "sota_boot.h"
 #include "sota_engine_priv.h"
+#include "sota_json.h"
 #include "sota_net.h"
 #include "sota_sys.h"
 #include "sota_trial.h"
@@ -403,6 +404,9 @@ bool sota_engine_check(sota_engine_t *e)
     e->last_check_ok = false;
 
     const char *labels = e->cfg.device.labels_json;
+    if (labels && labels[0] && !sota_json_is_object(labels)) {
+        SOTA_LOGW("labels are not a JSON object; checking in without them");
+    }
     size_t body_cap = CHECK_BODY_CAP + (labels ? strlen(labels) : 0);
     const char *version = e->cfg.version_label ? e->cfg.version_label : e->st.live.version;
     char *body = (char *)malloc(body_cap);

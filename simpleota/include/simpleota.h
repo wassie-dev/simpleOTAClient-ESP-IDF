@@ -143,9 +143,8 @@ typedef struct {
 esp_err_t simpleota_init(const simpleota_config_t *config);
 
 /** Start the managed background task (check on interval, apply, report).
- *  Call promptly after simpleota_init(): on a trial boot the confirm-timeout
- *  rollback is executed by this task, so supervision is inactive until it
- *  runs. */
+ *  On a trial boot the confirm timeout rolls back also without it, but
+ *  only the task's check-in confirms the trial (unless manual_confirm). */
 esp_err_t simpleota_start(void);
 
 /** Stop the managed task. Blocks briefly; never interrupts a flash write. */

@@ -4,11 +4,12 @@
  * (src/core, vendored from SimpleOTAClient-core), so the protocol, the
  * trial record in NVS and the rollback rules match the Arduino client.
  *
- * Threading model: one background task ("simpleota") owns all network and
- * flash activity. Public API calls only notify it, except
- * simpleota_confirm(), which records the confirm on the caller's task, and
- * simpleota_reboot_for_update(), which stops the background task and posts
- * its status from a short-lived task of the same stack size.
+ * Threading model: one background task ("simpleota", the core's
+ * sota_runner) owns all network and flash activity. Public API calls only
+ * notify it, except simpleota_confirm(), which records the confirm on the
+ * caller's task, and simpleota_reboot_for_update(), which stops the
+ * background task and posts its status from a short-lived task of the same
+ * stack size.
  */
 
 #include "simpleota.h"
@@ -22,10 +23,8 @@
 #include "sdkconfig.h"
 
 #include "esp_log.h"
-#include "esp_mac.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
@@ -35,7 +34,8 @@
 #include "sota_app.h"
 #include "sota_engine.h"
 #include "sota_net_idf.h"
-#include "sota_time.h"
+#include "sota_runner.h"
+#include "sota_sys.h"
 #include "sota_url.h"
 
 _Static_assert((int)SOTA_EVENT_CHECK_DONE == (int)SIMPLEOTA_EVENT_CHECK_DONE &&
@@ -77,15 +77,11 @@ enum {
 typedef struct {
     sota_net_idf_t net; /* First: the engine's user pointer is this struct. */
     sota_engine_t engine;
+    sota_runner_t runner;
     char *str[STR_COUNT];
     bool initialized;
-    uint32_t initial_delay_ms;
-    bool (*is_connected)(void *user_ctx);
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
     void *user_ctx;
-    TaskHandle_t task;
-    SemaphoreHandle_t stopped_sem;
-    volatile bool stop_requested;
 } simpleota_t;
 
 static simpleota_t s;
@@ -115,8 +111,7 @@ void sota_app_event(void *user, const sota_event_t *ev)
 
 void sota_app_wake(void *user)
 {
-    simpleota_t *c = (simpleota_t *)user;
-    if (c->task) xTaskNotifyGive(c->task);
+    sota_runner_wake(&((simpleota_t *)user)->runner);
 }
 
 /* The core's levels are esp_log_level_t's. */
@@ -131,44 +126,13 @@ void sota_app_log(int level, const char *fmt, ...)
 }
 
 /* ---------------------------------------------------------------------------
- * Managed task
- * ------------------------------------------------------------------------- */
-
-static void sota_task(void *arg)
-{
-    (void)arg;
-    /* An overdue confirm timeout outranks the initial delay. */
-    if (s.initial_delay_ms && !s.engine.timeout_pending) {
-        ulTaskNotifyTake(pdTRUE, sota_ms_to_ticks(s.initial_delay_ms, configTICK_RATE_HZ));
-    }
-    while (!s.stop_requested) {
-        bool connected = !s.is_connected || s.is_connected(s.user_ctx);
-        uint32_t wait_s = sota_engine_step(&s.engine, connected, NULL);
-        ulTaskNotifyTake(pdTRUE, sota_ms_to_ticks((uint64_t)wait_s * 1000u, configTICK_RATE_HZ));
-    }
-    s.task = NULL;
-    xSemaphoreGive(s.stopped_sem);
-    vTaskDelete(NULL);
-}
-
-/* ---------------------------------------------------------------------------
  * Public API
  * ------------------------------------------------------------------------- */
 
-/* Byte-identical to the Arduino client's, so a device keeps its identity
- * across a framework migration. */
-static void default_device_id(char out[18])
-{
-    uint8_t mac[6] = {0};
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3],
-             mac[4], mac[5]);
-}
-
 static bool copy_strings(const simpleota_config_t *cfg)
 {
-    char mac[18];
-    if (!cfg->device_id) default_device_id(mac);
+    char mac[SOTA_DEVICE_ID_LEN];
+    if (!cfg->device_id) sota_sys_default_device_id(mac);
     const char *src[STR_COUNT] = {
         [STR_TOKEN] = cfg->token,
         [STR_BASE_URL] = cfg->base_url,
@@ -247,8 +211,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
 #endif
 
     memset(&s, 0, sizeof(s));
-    s.stopped_sem = xSemaphoreCreateBinary();
-    if (!s.stopped_sem || !copy_strings(config)) {
+    if (!copy_strings(config)) {
         simpleota_deinit();
         return ESP_ERR_NO_MEM;
     }
@@ -263,8 +226,12 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
 #if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
     if (!s.net.cert_pem && !s.net.crt_bundle_attach) s.net.crt_bundle_attach = esp_crt_bundle_attach;
 #endif
-    s.initial_delay_ms = config->initial_delay_ms;
-    s.is_connected = config->is_connected;
+    s.runner.engine = &s.engine;
+    s.runner.initial_delay_ms = config->initial_delay_ms;
+    s.runner.is_connected = config->is_connected;
+    s.runner.ctx = config->user_ctx;
+    s.runner.stack_size = CONFIG_SIMPLEOTA_TASK_STACK_SIZE;
+    s.runner.priority = CONFIG_SIMPLEOTA_TASK_PRIORITY;
     s.event_cb = config->event_cb;
     s.user_ctx = config->user_ctx;
     s.initialized = true;
@@ -279,30 +246,21 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
 esp_err_t simpleota_start(void)
 {
     if (!s.initialized) return ESP_ERR_INVALID_STATE;
-    if (s.task) return ESP_OK;
-    s.stop_requested = false;
-    BaseType_t ok = xTaskCreate(sota_task, "simpleota", CONFIG_SIMPLEOTA_TASK_STACK_SIZE, NULL,
-                                CONFIG_SIMPLEOTA_TASK_PRIORITY, &s.task);
-    return ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+    return sota_runner_start(&s.runner, "simpleota") ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 /* The task stops between steps, so a flash write is never interrupted. */
 esp_err_t simpleota_stop(void)
 {
-    if (!s.initialized || !s.task) return ESP_OK;
-    s.stop_requested = true;
-    xTaskNotifyGive(s.task);
-    if (xSemaphoreTake(s.stopped_sem, sota_ms_to_ticks(60000, configTICK_RATE_HZ)) != pdTRUE) {
-        ESP_LOGW(TAG, "stop: task did not exit within 60 s");
-        return ESP_ERR_TIMEOUT;
-    }
-    return ESP_OK;
+    if (sota_runner_stop(&s.runner, 60000)) return ESP_OK;
+    ESP_LOGW(TAG, "stop: task did not exit within 60 s");
+    return ESP_ERR_TIMEOUT;
 }
 
 esp_err_t simpleota_check_now(void)
 {
-    if (!s.initialized || !s.task) return ESP_ERR_INVALID_STATE;
-    xTaskNotifyGive(s.task);
+    if (!s.initialized || !s.runner.task) return ESP_ERR_INVALID_STATE;
+    sota_runner_wake(&s.runner);
     return ESP_OK;
 }
 
@@ -311,7 +269,7 @@ esp_err_t simpleota_confirm(void)
     if (!s.initialized) return ESP_ERR_INVALID_STATE;
     if (sota_engine_confirm(&s.engine) == SOTA_CONFIRM_FAILED) return ESP_FAIL;
     /* The task posts the confirmed report. */
-    if (s.task) xTaskNotifyGive(s.task);
+    if (s.runner.task) sota_runner_wake(&s.runner);
     return ESP_OK;
 }
 
@@ -328,7 +286,7 @@ esp_err_t simpleota_reboot_for_update(void)
 {
     if (!s.initialized || !sota_engine_update_waiting()) return ESP_ERR_INVALID_STATE;
     /* From event_cb, on the component task: its stack is big enough. */
-    if (s.task && xTaskGetCurrentTaskHandle() == s.task) sota_engine_reboot_for_update(&s.engine);
+    if (sota_runner_on_task(&s.runner)) sota_engine_reboot_for_update(&s.engine);
     /* Otherwise stop the task first, so only one TLS session is open. */
     simpleota_stop();
     if (xTaskCreate(reboot_task, "sota_reboot", CONFIG_SIMPLEOTA_TASK_STACK_SIZE, NULL,
@@ -346,11 +304,10 @@ uint32_t simpleota_current_build(void) { return s.engine.st.live.build; }
 esp_err_t simpleota_deinit(void)
 {
     /* A task still in a long download uses the strings below. */
-    if (s.task && simpleota_stop() != ESP_OK) return ESP_ERR_TIMEOUT;
+    if (simpleota_stop() != ESP_OK) return ESP_ERR_TIMEOUT;
     /* Also after a failed init, which may have set the engine up. */
     sota_engine_deinit(&s.engine);
     for (int i = 0; i < STR_COUNT; ++i) free(s.str[i]);
-    if (s.stopped_sem) vSemaphoreDelete(s.stopped_sem);
     memset(&s, 0, sizeof(s));
     return ESP_OK;
 }

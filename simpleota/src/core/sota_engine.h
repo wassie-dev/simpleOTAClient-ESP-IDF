@@ -94,6 +94,10 @@ typedef struct sota_engine {
  *  sota_engine_deinit(). */
 bool sota_engine_init(sota_engine_t *e, const sota_config_t *cfg);
 
+/** Set cfg.confirm_timeout_s, clamped to [10, 86400]. Before the trial's
+ *  timer starts, at the boot's first validate_boot(). */
+void sota_engine_set_confirm_timeout(sota_engine_t *e, uint32_t seconds);
+
 /** Pin an Ed25519 public key (PEM). key_id may be NULL. False when the
  *  PEM does not parse or two keys are pinned already. */
 bool sota_engine_add_key(sota_engine_t *e, const char *key_id, const char *pem);

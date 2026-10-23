@@ -27,8 +27,9 @@ static inline int sota_net_is_redirect(int status)
 
 /** sota_net_dl_read() results besides a byte count. */
 enum {
-    SOTA_NET_ERROR = -1,   /**< The connection failed. */
-    SOTA_NET_STALLED = -2, /**< No byte arrived within the transport timeout. */
+    SOTA_NET_ERROR = -1, /**< The connection failed. */
+    SOTA_NET_AGAIN = -2, /**< No byte yet: the core calls again, and gives up
+                              with download_stalled after http_timeout_ms. */
 };
 
 /**
@@ -54,7 +55,8 @@ int sota_net_dl_open(void *user, const char *url, int64_t *len, char *location,
                      size_t location_cap);
 
 /** Read the next bytes of the body: a count, 0 once the whole body has
- *  arrived, or SOTA_NET_ERROR / SOTA_NET_STALLED. */
+ *  arrived, SOTA_NET_AGAIN, or SOTA_NET_ERROR. The core times the stall, so
+ *  an error after http_timeout_ms with no byte is reported as a stall. */
 int sota_net_dl_read(void *user, uint8_t *buf, size_t cap);
 
 /** End the download and free its connection. */

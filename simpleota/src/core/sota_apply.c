@@ -88,10 +88,19 @@ static const char *download(sota_engine_t *e, job_t *job, size_t expected,
 {
     size_t total = 0;
     size_t last = (size_t)-1;
+    uint32_t last_byte_ms = sota_sys_now_ms();
     for (;;) {
         int r = sota_net_dl_read(e->cfg.user, job->chunk, SOTA_DL_CHUNK);
         if (r == 0) break;
-        if (r < 0) return r == SOTA_NET_STALLED ? "download_stalled" : "stream_error";
+        if (r < 0) {
+            bool stalled = sota_sys_now_ms() - last_byte_ms >= e->cfg.http_timeout_ms;
+            if (r == SOTA_NET_AGAIN && !stalled) {
+                sota_sys_sleep_ms(1);
+                continue;
+            }
+            return stalled ? "download_stalled" : "stream_error";
+        }
+        last_byte_ms = sota_sys_now_ms();
         if (!sota_image_write(job->chunk, (size_t)r)) return "update_write_failed";
         sota_sha256_update(sha, job->chunk, (size_t)r);
         if (job->verifier) sota_verifier_update(job->verifier, job->chunk, (size_t)r);

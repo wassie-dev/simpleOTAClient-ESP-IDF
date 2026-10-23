@@ -20,6 +20,9 @@ struct sota_engine;
 
 void sota_sys_sleep_ms(uint32_t ms);
 
+/** Milliseconds since boot; wraps. */
+uint32_t sota_sys_now_ms(void);
+
 /** One lock for every engine. Never held across a network call. */
 void sota_sys_lock(void);
 void sota_sys_unlock(void);

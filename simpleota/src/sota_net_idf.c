@@ -11,7 +11,6 @@
 
 #include "sdkconfig.h"
 
-#include "esp_timer.h"
 #include "sota_net.h"
 
 static void client_config(const sota_net_idf_t *n, const char *url,
@@ -101,22 +100,18 @@ int sota_net_dl_open(void *user, const char *url, int64_t *len, char *location,
     }
     if (*len <= 0) *len = -1;
     n->dl = c;
-    n->last_byte_us = esp_timer_get_time();
     return status;
 }
 
 int sota_net_dl_read(void *user, uint8_t *buf, size_t cap)
 {
     sota_net_idf_t *n = (sota_net_idf_t *)user;
+    /* Blocks up to the HTTP timeout; the core reports an error after that
+     * long without a byte as download_stalled. */
     int r = esp_http_client_read(n->dl, (char *)buf, (int)cap);
-    int64_t now = esp_timer_get_time();
-    if (r > 0) {
-        n->last_byte_us = now;
-        return r;
-    }
+    if (r > 0) return r;
     if (r == 0 && esp_http_client_is_complete_data_received(n->dl)) return 0;
-    bool stalled = now - n->last_byte_us >= (int64_t)CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS * 1000;
-    return stalled ? SOTA_NET_STALLED : SOTA_NET_ERROR;
+    return SOTA_NET_ERROR;
 }
 
 void sota_net_dl_close(void *user)

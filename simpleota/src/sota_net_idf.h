@@ -17,7 +17,6 @@ typedef struct {
     const char *cert_pem;                       /**< Pinned CA, or NULL. */
     esp_err_t (*crt_bundle_attach)(void *conf); /**< Used without cert_pem. */
     esp_http_client_handle_t dl;                /**< The open download. */
-    int64_t last_byte_us;                       /**< When the download last made progress. */
 } sota_net_idf_t;
 
 #endif /* SOTA_NET_IDF_H */

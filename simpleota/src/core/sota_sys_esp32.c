@@ -25,6 +25,11 @@ void sota_sys_sleep_ms(uint32_t ms)
     vTaskDelay(sota_ms_to_ticks(ms, configTICK_RATE_HZ));
 }
 
+uint32_t sota_sys_now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
 /* Created on first use: an Arduino client object can be constructed
  * before the scheduler runs. */
 void sota_sys_lock(void)

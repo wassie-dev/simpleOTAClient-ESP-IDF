@@ -88,7 +88,7 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | Field | Default | Purpose |
 |---|---|---|
 | `token` | required | Project API token (device scope) or per-device token |
-| `base_url` | `https://simpleota.com` | Platform base URL |
+| `base_url` | `https://simpleota.com` | Platform base URL; must be `https://` |
 | `device_id` | Wi-Fi STA MAC (`aa:bb:cc:dd:ee:ff`) | Stable per-unit identifier |
 | `chip_family` | `CONFIG_IDF_TARGET` | e.g. `esp32`, `esp32s3`, `esp32c3` |
 | `board_id`, `hardware_revision`, `partition_profile`, `channel` | omitted | Compatibility metadata; report what your artifacts constrain |
@@ -320,7 +320,10 @@ from `signature_invalid`.
 Server and download connections use the ESP-IDF certificate bundle by
 default (`CONFIG_MBEDTLS_CERTIFICATE_BUNDLE`, enabled by default), so there
 is no CA to paste or rotate. Pin a specific CA with `.cert_pem` if you
-prefer. Plain HTTP download URLs are refused (`insecure_url`).
+prefer. Everything is HTTPS: a `base_url` that is not `https://` fails
+`simpleota_init()`, a plain HTTP download URL is refused (`insecure_url`),
+and a download follows up to three redirects, each only to another
+`https://` URL (`redirect_not_https` otherwise).
 
 ### Task watchdog warnings during the handshake
 

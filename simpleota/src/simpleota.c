@@ -36,6 +36,7 @@
 #include "sota_engine.h"
 #include "sota_net_idf.h"
 #include "sota_time.h"
+#include "sota_url.h"
 
 _Static_assert((int)SOTA_EVENT_CHECK_DONE == (int)SIMPLEOTA_EVENT_CHECK_DONE &&
                    (int)SOTA_EVENT_UPDATE_AVAILABLE == (int)SIMPLEOTA_EVENT_UPDATE_AVAILABLE &&
@@ -190,6 +191,13 @@ static bool copy_strings(const simpleota_config_t *cfg)
 
 static esp_err_t init_engine(const simpleota_config_t *config)
 {
+    sota_url_status_t url = SOTA_URL_OK;
+    if (config->base_url) url = sota_validate_server_url(config->base_url);
+    if (url != SOTA_URL_OK) {
+        ESP_LOGE(TAG, "base_url rejected (%s): it must be an https:// URL with a host",
+                 sota_url_status_name(url));
+        return ESP_ERR_INVALID_ARG;
+    }
     sota_config_t cfg = {
         .token = s.str[STR_TOKEN],
         .server_url = s.str[STR_BASE_URL],

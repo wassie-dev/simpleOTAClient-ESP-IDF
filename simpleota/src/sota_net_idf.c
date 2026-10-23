@@ -71,16 +71,11 @@ int sota_net_post(void *user, const char *url, const char *token, const char *bo
     return status;
 }
 
-static bool is_redirect(int status)
-{
-    return status == 301 || status == 302 || status == 303 || status == 307 ||
-           status == 308;
-}
-
 /* No Authorization header: the pre-signed URL carries its own credentials,
- * and the token must not reach the storage host. The streaming API does
- * not follow redirects, so they are walked here. */
-int sota_net_dl_open(void *user, const char *url, int64_t *len)
+ * and the token must not reach the storage host. A redirect is handed back
+ * to the core, which checks where it leads. */
+int sota_net_dl_open(void *user, const char *url, int64_t *len, char *location,
+                     size_t location_cap)
 {
     sota_net_idf_t *n = (sota_net_idf_t *)user;
     esp_http_client_config_t cfg;
@@ -88,28 +83,26 @@ int sota_net_dl_open(void *user, const char *url, int64_t *len)
     cfg.keep_alive_enable = true;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) return 0;
-
-    for (int redirects = 0;; ++redirects) {
-        if (esp_http_client_open(c, 0) != ESP_OK) {
-            esp_http_client_cleanup(c);
-            return 0;
+    if (esp_http_client_open(c, 0) != ESP_OK) {
+        esp_http_client_cleanup(c);
+        return 0;
+    }
+    *len = esp_http_client_fetch_headers(c);
+    int status = esp_http_client_get_status_code(c);
+    if (status != 200) {
+        /* set_redirection resolves the Location header against url. */
+        if (sota_net_is_redirect(status) && location_cap &&
+            (esp_http_client_set_redirection(c) != ESP_OK ||
+             esp_http_client_get_url(c, location, (int)location_cap) != ESP_OK)) {
+            location[0] = '\0';
         }
-        *len = esp_http_client_fetch_headers(c);
-        int status = esp_http_client_get_status_code(c);
-        if (is_redirect(status) && redirects < SOTA_NET_MAX_REDIRECTS) {
-            esp_http_client_set_redirection(c);
-            esp_http_client_close(c);
-            continue;
-        }
-        if (status != 200) {
-            esp_http_client_cleanup(c);
-            return status;
-        }
-        if (*len <= 0) *len = -1;
-        n->dl = c;
-        n->last_byte_us = esp_timer_get_time();
+        esp_http_client_cleanup(c);
         return status;
     }
+    if (*len <= 0) *len = -1;
+    n->dl = c;
+    n->last_byte_us = esp_timer_get_time();
+    return status;
 }
 
 int sota_net_dl_read(void *user, uint8_t *buf, size_t cap)

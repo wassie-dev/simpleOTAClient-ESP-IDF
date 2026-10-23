@@ -148,6 +148,35 @@ static sota_apply_result_t commit(sota_engine_t *e, uint32_t slot, uint32_t runn
     return SOTA_APPLY_OK;
 }
 
+/*
+ * Open the offer's download, following up to SOTA_NET_MAX_REDIRECTS
+ * redirects. The transports do not follow them, so every hop is checked
+ * here, the same way for both clients: a redirect may only lead to another
+ * https:// URL. Returns the final status, with *reason set when a redirect
+ * was refused. e->offer.url ends up as the URL that was opened.
+ */
+static int open_download(sota_engine_t *e, int64_t *len, const char **reason)
+{
+    size_t cap = e->offer.url_cap;
+    char *loc = (char *)malloc(2 * cap);
+    if (!loc) return 0;
+    char *next = loc + cap;
+    int status = 0;
+    for (int hops = 0;; ++hops) {
+        loc[0] = '\0';
+        status = sota_net_dl_open(e->cfg.user, e->offer.url, len, loc, cap);
+        if (!sota_net_is_redirect(status) || hops == SOTA_NET_MAX_REDIRECTS) break;
+        sota_url_status_t st = sota_redirect_target(e->offer.url, loc, next, cap);
+        if (st != SOTA_URL_OK) {
+            *reason = st == SOTA_URL_NOT_HTTPS ? "redirect_not_https" : "redirect_malformed";
+            break;
+        }
+        memcpy(e->offer.url, next, strlen(next) + 1);
+    }
+    free(loc);
+    return status;
+}
+
 sota_apply_result_t sota_engine_apply(sota_engine_t *e)
 {
     sota_engine_validate_boot(e);
@@ -158,7 +187,7 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
     if (!e->has_offer) return SOTA_APPLY_NO_OFFER;
 
     job_t job = {NULL, NULL, false, false};
-    if (!sota_url_has_scheme(e->offer.url, "https://")) {
+    if (!sota_url_has_scheme(e->offer.url, "https://") || !sota_url_chars_ok(e->offer.url)) {
         return give_up(e, &job, "insecure_url", SOTA_APPLY_FLASH_FAIL);
     }
 
@@ -181,7 +210,9 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
 
     sota_engine_post_status(e, "download_started", NULL, e->offer.deployment, e->offer.build);
     int64_t len = -1;
-    int http = sota_net_dl_open(e->cfg.user, e->offer.url, &len);
+    const char *refused = NULL;
+    int http = open_download(e, &len, &refused);
+    if (refused) return give_up(e, &job, refused, SOTA_APPLY_FLASH_FAIL);
     if (http != 200) {
         char reason[24];
         if (http == 0) {

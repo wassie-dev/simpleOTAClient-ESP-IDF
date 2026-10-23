@@ -21,6 +21,9 @@
   when it starts.
 - The trial watchdog runs without bootloader rollback too.
 - A trial that boots after a panic or watchdog reset is rolled back.
+- A download redirect is followed only to another `https://` URL
+  (`redirect_not_https` otherwise), and a `base_url` that is not `https://`
+  fails `simpleota_init()` with a log line saying why.
 - `simpleota_deinit()` returns `ESP_ERR_TIMEOUT` and releases nothing when
   the task does not stop, instead of freeing what a running download uses.
 - Tokens of any length work; one over about 180 characters used to fail every

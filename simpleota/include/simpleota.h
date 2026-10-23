@@ -90,7 +90,8 @@ typedef struct {
  */
 typedef struct {
     const char *token;             /**< REQUIRED. Project token or per-device token. */
-    const char *base_url;          /**< Default "https://simpleota.com". No trailing slash. */
+    const char *base_url;          /**< Default "https://simpleota.com". Must be https://
+                                        with a host; anything else fails init. */
     const char *device_id;         /**< Default: Wi-Fi STA MAC "aa:bb:cc:dd:ee:ff". */
     const char *chip_family;       /**< Default: CONFIG_IDF_TARGET ("esp32", "esp32s3", ...). */
     const char *board_id;          /**< NULL = omitted from check-ins. */
@@ -135,8 +136,8 @@ typedef struct {
  * (detects rollbacks, arms the confirm timeout for trial boots).
  *
  * Call AFTER nvs_flash_init(). Returns ESP_ERR_INVALID_ARG for a missing
- * token, an unparseable signing key, or a token containing control
- * characters; ESP_ERR_INVALID_STATE when already initialized or when
+ * token, an unparseable signing key, a token containing control
+ * characters, or a base_url that is not https://; ESP_ERR_INVALID_STATE when already initialized or when
  * neither the certificate bundle nor a cert_pem is available.
  */
 esp_err_t simpleota_init(const simpleota_config_t *config);

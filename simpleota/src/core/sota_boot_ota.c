@@ -4,9 +4,16 @@
 
 #include "sota_boot.h"
 
+#include "esp_idf_version.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include "esp_app_desc.h"
+#define running_elf_sha256 esp_app_get_elf_sha256
+#else
+#define running_elf_sha256 esp_ota_get_app_elf_sha256
+#endif
 #include "sota_trial.h"
 
 _Static_assert((int)SOTA_RST_POWERON == (int)ESP_RST_POWERON &&
@@ -47,6 +54,7 @@ void sota_boot_info(sota_boot_info_t *info)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *boot = esp_ota_get_boot_partition();
+    running_elf_sha256(info->image_id, sizeof(info->image_id));
     info->running_part = running ? running->address : 0;
     info->boot_part = boot ? boot->address : 0;
     info->reset_reason = (int)esp_reset_reason();

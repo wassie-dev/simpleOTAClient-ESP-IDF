@@ -27,6 +27,7 @@ typedef char sota_deployment_fits_report[
 #define K_CONF_PEND "sota_conf_pend"
 #define K_RB_REASON "sota_rb_reason"
 #define K_OUTBOX "sota_outbox"
+#define K_IMAGE "sota_image"
 
 static void get_str(const char *key, char *out, size_t cap)
 {
@@ -71,6 +72,7 @@ void sota_state_load(sota_state_t *st)
     sota_kv_get_u32(K_REPORT_BUILD, &st->report_build);
     sota_kv_get_u8(K_CONF_PEND, &st->conf_pend);
     get_str(K_RB_REASON, st->rb_reason, sizeof(st->rb_reason));
+    get_str(K_IMAGE, st->image_id, sizeof(st->image_id));
 }
 
 bool sota_state_stage_trial(const sota_identity_t *prev, const sota_identity_t *next,
@@ -108,6 +110,11 @@ bool sota_state_accept_update(const sota_identity_t *next, const char *deploymen
 bool sota_state_set_identity(const sota_identity_t *id)
 {
     return set_identity(K_BUILD, K_HASH, K_VER, id);
+}
+
+bool sota_state_set_image_id(const char *image_id)
+{
+    return sota_kv_set_str(K_IMAGE, image_id);
 }
 
 bool sota_state_mark_rolled_back(const sota_state_t *st, const char *reason)

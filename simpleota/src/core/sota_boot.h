@@ -21,8 +21,15 @@ extern "C" {
 #define SOTA_NORETURN
 #endif
 
+/** Hex characters of an image fingerprint. */
+#define SOTA_IMAGE_ID_LEN 16u
+
 /** This boot, as the bootloader left it. Addresses are 0 when unknown. */
 typedef struct {
+    /** Fingerprint of the running image (its ELF SHA-256, in hex), empty
+     *  when unknown. Tells an image SimpleOTA installed from one flashed
+     *  some other way. */
+    char image_id[SOTA_IMAGE_ID_LEN + 1];
     uint32_t running_part;
     uint32_t boot_part;    /**< The slot the next boot selects. */
     int reset_reason;      /**< esp_reset_reason_t, see SOTA_RST_* in sota_trial.h. */

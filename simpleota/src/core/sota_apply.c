@@ -196,6 +196,11 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
     if (!e->has_offer) return SOTA_APPLY_NO_OFFER;
 
     job_t job = {NULL, NULL, false, false};
+    /* An old build may carry fixed bugs, and its signature still verifies.
+     * To go back, release the old code under a new, higher build number. */
+    if (e->offer.build <= e->st.live.build) {
+        return give_up(e, &job, "downgrade_refused", SOTA_APPLY_DOWNGRADE);
+    }
     if (!sota_url_has_scheme(e->offer.url, "https://") || !sota_url_chars_ok(e->offer.url)) {
         return give_up(e, &job, "insecure_url", SOTA_APPLY_FLASH_FAIL);
     }

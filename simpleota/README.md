@@ -142,7 +142,8 @@ download_started -> downloaded -> flashed -> validated -> reboot
 ```
 
 Failures report `failed` with a reason token (`checksum_mismatch`,
-`signature_invalid`, `download_stalled`, `update_begin_failed`, ...) that the
+`signature_invalid`, `downgrade_refused`, `download_stalled`,
+`update_begin_failed`, ...) that the
 dashboard shows inline on the device row. Once a boot has worked out what
 happened to a trial, its `confirmed` or `rolled_back` report goes to an outbox
 in NVS (two slots, oldest dropped first) and never holds up an update. Reports
@@ -344,6 +345,14 @@ prefer. Everything is HTTPS: a `base_url` that is not `https://` fails
 `simpleota_init()`, a plain HTTP download URL is refused (`insecure_url`),
 and a download follows up to three redirects, each only to another
 `https://` URL (`redirect_not_https` otherwise).
+
+Anti-rollback: an offer whose build number is not above the running build
+is refused (`downgrade_refused`, `SIMPLEOTA_DOWNGRADE`), because an old
+image's signature still verifies and old builds can carry fixed bugs. To go
+back, release the old code under a new, higher build number. The running
+build is the one stored with the image SimpleOTA installed: an image flashed
+some other way, such as over serial, reports build 0, so a device reused for
+another project takes that project's builds.
 
 ### Task watchdog warnings during the handshake
 

@@ -55,7 +55,8 @@ _Static_assert((int)SOTA_APPLY_OK == (int)SIMPLEOTA_OK &&
                    (int)SOTA_APPLY_NO_OFFER == (int)SIMPLEOTA_NO_OFFER &&
                    (int)SOTA_APPLY_SIGNATURE_FAIL == (int)SIMPLEOTA_SIGNATURE_FAIL &&
                    (int)SOTA_APPLY_REBOOT_PENDING == (int)SIMPLEOTA_REBOOT_PENDING &&
-                   (int)SOTA_APPLY_UNCONFIRMED == (int)SIMPLEOTA_UNCONFIRMED,
+                   (int)SOTA_APPLY_UNCONFIRMED == (int)SIMPLEOTA_UNCONFIRMED &&
+                   (int)SOTA_APPLY_DOWNGRADE == (int)SIMPLEOTA_DOWNGRADE,
                "simpleota_result_t mirrors sota_apply_result_t");
 
 static const char *TAG = "simpleota";

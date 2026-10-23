@@ -43,6 +43,7 @@ typedef enum {
     SOTA_APPLY_SIGNATURE_FAIL = 4, /**< Required signature missing or wrong. */
     SOTA_APPLY_REBOOT_PENDING = 5, /**< A flashed update waits for its reboot. */
     SOTA_APPLY_UNCONFIRMED = 6,    /**< The running image is on trial; the offer is kept. */
+    SOTA_APPLY_DOWNGRADE = 7,      /**< The offer's build is not above the running one. */
 } sota_apply_result_t;
 
 typedef enum {

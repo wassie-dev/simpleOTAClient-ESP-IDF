@@ -7,6 +7,8 @@
  *   sota_build      u32   build number of the live (reported) image
  *   sota_hash       str   sha256 hex of the live image
  *   sota_ver        str   version label of the live image
+ *   sota_image      str   fingerprint of the image the live identity was
+ *                         last seen running on (sota_boot_info_t.image_id)
  *   sota_trial      u8    0 steady, 1 trial, 3 trial that has booted,
  *                         2 rolled back with a report pending
  *   sota_staged     u8    present while the trial record is written but the
@@ -64,6 +66,7 @@ typedef struct {
     uint32_t report_build; /**< sota_fail_build */
     uint8_t conf_pend;
     char rb_reason[24];
+    char image_id[17];     /**< sota_image */
 } sota_state_t;
 
 /** Load the state. A missing key, or a string too long for its field,
@@ -96,6 +99,9 @@ bool sota_state_accept_update(const sota_identity_t *next, const char *deploymen
 
 /** Write the live identity. */
 bool sota_state_set_identity(const sota_identity_t *id);
+
+/** Note the image the live identity runs on. */
+bool sota_state_set_image_id(const char *image_id);
 
 /**
  * The trial is being rolled back: the previous identity goes live, and

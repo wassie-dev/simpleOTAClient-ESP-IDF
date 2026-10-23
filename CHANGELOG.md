@@ -10,6 +10,8 @@
 
 ### Changed
 
+- Anti-rollback: an offer whose build number is not above the running build is refused (`downgrade_refused`; `SIMPLEOTA_DOWNGRADE` in polling mode). An old image's signature still verifies, so this stops an old, vulnerable build being pushed. To go back, release the old code under a new, higher build number.
+- An image flashed some other way than SimpleOTA, such as over serial, reports build 0 instead of the build stored for the image before it, so a device reused for another project is not stuck refusing that project's builds. The running image's ELF SHA-256 is stored as `sota_image` to tell them apart.
 - `manual_confirm` applies to managed mode only. Without `simpleota_start()`, a trial is confirmed only by `simpleota_confirm()`, as on Arduino.
 
 - The update logic is now the shared SimpleOTAClient-core, copied into

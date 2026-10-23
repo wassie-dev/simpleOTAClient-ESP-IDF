@@ -280,6 +280,26 @@ static sota_boot_facts_t boot_facts(const sota_state_t *st, const sota_boot_info
     return f;
 }
 
+typedef char sota_image_id_fits_state[
+    sizeof(((sota_state_t *)0)->image_id) == SOTA_IMAGE_ID_LEN + 1 ? 1 : -1];
+
+/* Note the running image. One that changed with no update to account for
+ * it came another way: a serial flash, perhaps of another project, so the
+ * stored build no longer describes it. It reports build 0, or an older
+ * build in its stored number would refuse every offer. */
+static void note_image(sota_engine_t *e, const sota_boot_info_t *info,
+                       sota_boot_outcome_t outcome)
+{
+    if (!info->image_id[0] || !strcmp(info->image_id, e->st.image_id)) return;
+    if (outcome == SOTA_BOOT_NONE && !e->st.conf_pend && e->st.live.build) {
+        static const sota_identity_t none;
+        SOTA_LOGW("running an image SimpleOTA did not install; reporting build 0");
+        sota_state_set_identity(&none);
+    }
+    sota_state_set_image_id(info->image_id);
+    sota_engine_reload(e);
+}
+
 void sota_engine_validate_boot(sota_engine_t *e)
 {
     if (e->validated || !running(e)) return;
@@ -296,6 +316,7 @@ void sota_engine_validate_boot(sota_engine_t *e)
     sota_boot_facts_t facts = boot_facts(&e->st, &info);
 
     sota_boot_outcome_t outcome = sota_classify_boot(&facts);
+    note_image(e, &info, outcome);
     switch (outcome) {
     case SOTA_BOOT_NONE:
         /* An update applied without a trial left its report context. */

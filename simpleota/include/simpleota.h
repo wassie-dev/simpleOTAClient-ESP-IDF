@@ -70,6 +70,8 @@ typedef enum {
                                        simpleota_reboot_for_update(). */
     SIMPLEOTA_UNCONFIRMED = 6,    /**< The running image is on trial: confirm it,
                                        then apply again. The offer is kept. */
+    SIMPLEOTA_DOWNGRADE = 7,      /**< The offered build is not above the running
+                                       one; refused (anti-rollback). */
 } simpleota_result_t;
 
 /** Events delivered to the config's event_cb (from the component task). */

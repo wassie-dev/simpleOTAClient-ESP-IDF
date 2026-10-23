@@ -2,7 +2,15 @@
 
 ## 1.0.0
 
+### Added
+
+- Polling mode: `simpleota_check()` and `simpleota_apply()`, with `simpleota_result_t`, for apps that run the checks from their own task, as the Arduino client can.
+- `simpleota_set_server_url()` and `simpleota_last_offered_version()`, as on Arduino.
+- A table in the README maps each call to its Arduino counterpart.
+
 ### Changed
+
+- `manual_confirm` applies to managed mode only. Without `simpleota_start()`, a trial is confirmed only by `simpleota_confirm()`, as on Arduino.
 
 - The update logic is now the shared SimpleOTAClient-core, copied into
   `simpleota/src/core`, so the protocol, the trial record in NVS and the

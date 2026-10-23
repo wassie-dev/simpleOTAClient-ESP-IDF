@@ -81,6 +81,26 @@ until it does: each check then waits for the link, as
 See [examples/basic](../examples/basic) for a full project including Wi-Fi
 bring-up, and [examples/signed](../examples/signed) for signed firmware.
 
+### Polling mode
+
+To run the checks from your own task instead, skip `simpleota_start()`:
+
+```c
+if (simpleota_check()) {
+    simpleota_result_t r = simpleota_apply();   // reboots on success
+    if (r != SIMPLEOTA_OK) ESP_LOGW("app", "update failed: %d", r);
+}
+```
+
+In polling mode you confirm a trial yourself with `simpleota_confirm()` once
+the new image is healthy, whatever `manual_confirm` says. The modes don't mix:
+while the managed task runs, `simpleota_check()` returns false and
+`simpleota_apply()` returns `SIMPLEOTA_NO_OFFER`, with a warning.
+
+`simpleota_set_server_url()` moves check-ins to another `https://` server
+while the managed task is stopped, and `simpleota_last_offered_version()`
+returns the last offer's version label.
+
 ## Configuration
 
 All fields of `simpleota_config_t` (strings are copied at init):
@@ -99,7 +119,7 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | `check_interval_s` | 3600 | Steady-state poll interval |
 | `initial_delay_ms` | 0 | Delay before the first check after `simpleota_start()` |
 | `confirm_timeout_s` | 300 | Trial window before automatic rollback |
-| `manual_confirm` | false | true: you call `simpleota_confirm()` after health checks |
+| `manual_confirm` | false | Managed mode. true: you call `simpleota_confirm()` after health checks. Polling mode always needs the call |
 | `disable_auto_reboot` | false | true: you call `simpleota_reboot_for_update()`. No further update is downloaded until then. |
 | `signing_keys`, `num_signing_keys` | none | Up to 2 pinned Ed25519 public keys (PEM) |
 | `is_connected` | always try | Return false while the link is down. It is polled every second, and the check runs as soon as it returns true |
@@ -372,6 +392,29 @@ the commit in `src/core/CORE_VERSION`. Its host tests cover signing, SHA-256,
 response parsing, the trial record, rollback, and a power cut at every storage
 write. CI checks that `src/core` matches that commit, and builds both examples
 across IDF v5.1 through latest on Xtensa and RISC-V targets.
+
+## Arduino and ESP-IDF
+
+The [Arduino](https://github.com/xanderwasserman/SimpleOTAClient-Arduino) and [ESP-IDF](https://github.com/xanderwasserman/SimpleOTAClient-ESP-IDF) clients run the same core, so they have the same features, defaults and behaviour. Only the spelling follows each platform's style.
+
+| What | Arduino | ESP-IDF |
+|---|---|---|
+| Set up | `SimpleOTAClient ota(token, ...)` and setters | `simpleota_init(&config)` |
+| Managed mode | `begin(interval, isConnected, initialDelayMs)`, `end()` | `simpleota_start()`, `simpleota_stop()` |
+| Check now | `checkNow()` | `simpleota_check_now()` |
+| Polling mode | `check()`, `apply()` returning `OTAResult` | `simpleota_check()`, `simpleota_apply()` returning `simpleota_result_t` |
+| Events | `onEvent(callback)` | `config.event_cb` |
+| Confirm a trial | `confirm()` | `simpleota_confirm()` |
+| Confirm by hand in managed mode | `setManagedAutoConfirm(false)` | `config.manual_confirm = true` |
+| Trial state | `isTrialBoot()` | `simpleota_is_trial_boot()` |
+| Confirm timeout | `setConfirmTimeout(s)` | `config.confirm_timeout_s` |
+| Reboot when the app is ready | `setAutoReboot(false)`, `rebootForUpdate()` | `config.disable_auto_reboot`, `simpleota_reboot_for_update()` |
+| Server URL | `setServerUrl(url)` | `config.base_url`, `simpleota_set_server_url(url)` |
+| TLS trust | `setCACert(pem)` | `config.cert_pem` |
+| Signing keys | `setSigningPublicKey()`, `addSigningPublicKey()` | `config.signing_keys` |
+| Build and offer | `currentBuild()`, `lastOfferedVersion()` | `simpleota_current_build()`, `simpleota_last_offered_version()` |
+| Logging | `setDebug(true)` | `esp_log_level_set("simpleota", ...)` |
+| HTTP timeout | `-DSIMPLEOTA_HTTP_TIMEOUT_MS` | `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` |
 
 ## License
 

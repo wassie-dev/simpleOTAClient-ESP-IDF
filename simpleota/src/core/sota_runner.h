@@ -21,7 +21,6 @@ typedef struct {
     sota_engine_t *engine;
     uint32_t initial_delay_ms;      /**< Before the first check, unless a confirm timeout is due. */
     bool (*is_connected)(void *ctx); /**< NULL: always connected. */
-    void (*on_result)(sota_apply_result_t result, void *ctx); /**< After each apply, or NULL. */
     void *ctx;
     uint32_t stack_size;            /**< Also for the rollback task without a runner. */
     unsigned priority;

@@ -9,7 +9,10 @@
  *
  * The application owns network bring-up (Wi-Fi/Ethernet) and decides when
  * the component may talk to the network via the optional is_connected
- * callback; the component does the rest from its own background task.
+ * callback; the component does the rest from its own background task
+ * (managed mode). In polling mode the application calls simpleota_check()
+ * and simpleota_apply() from its own task instead, and confirms a trial with
+ * simpleota_confirm().
  *
  * Quick start (after Wi-Fi or Ethernet has an IP):
  *
@@ -54,6 +57,19 @@ extern "C" {
 #define SIMPLEOTA_SECURITY_BASIC "basic"
 #define SIMPLEOTA_SECURITY_TOKEN "token"
 #define SIMPLEOTA_SECURITY_SIGNED "signed"
+
+/** What simpleota_apply() did; the same values as Arduino's OTAResult. */
+typedef enum {
+    SIMPLEOTA_OK = 0,             /**< Flashed and verified; the reboot is next. */
+    SIMPLEOTA_CHECKSUM_FAIL = 1,  /**< The download did not match its SHA-256. */
+    SIMPLEOTA_FLASH_FAIL = 2,     /**< Network, flash or state write failure. */
+    SIMPLEOTA_NO_OFFER = 3,       /**< No offer from a successful simpleota_check(). */
+    SIMPLEOTA_SIGNATURE_FAIL = 4, /**< Required signature missing or wrong. */
+    SIMPLEOTA_REBOOT_PENDING = 5, /**< A flashed update waits for
+                                       simpleota_reboot_for_update(). */
+    SIMPLEOTA_UNCONFIRMED = 6,    /**< The running image is on trial: confirm it,
+                                       then apply again. The offer is kept. */
+} simpleota_result_t;
 
 /** Events delivered to the config's event_cb (from the component task). */
 typedef enum {
@@ -107,7 +123,10 @@ typedef struct {
     uint32_t initial_delay_ms;     /**< Delay before the first check after start().
                                         Not a wait for the IP; see is_connected. */
     uint32_t confirm_timeout_s;    /**< 0 => 300. Clamped to [10, 86400]. */
-    bool manual_confirm;           /**< true: app must call simpleota_confirm(). */
+    bool manual_confirm;           /**< Managed mode: true = the app calls
+                                        simpleota_confirm(); false = the first
+                                        check-in confirms. Polling mode always
+                                        needs simpleota_confirm(). */
     bool disable_auto_reboot;      /**< true: app calls simpleota_reboot_for_update(). */
 
     /** Pinned public keys for signed firmware (0..2; parsed at init,
@@ -152,6 +171,26 @@ esp_err_t simpleota_stop(void);
 
 /** Wake the managed task to check immediately. */
 esp_err_t simpleota_check_now(void);
+
+/** Polling mode: check in, and keep any offer for simpleota_apply().
+ *  True when an update is offered. Sends queued reports first, except
+ *  during a trial. False, with a warning, while the managed task runs. */
+bool simpleota_check(void);
+
+/** Polling mode: download, verify and flash the offer from the last
+ *  simpleota_check(), then reboot unless disable_auto_reboot is set.
+ *  SIMPLEOTA_NO_OFFER, with a warning, while the managed task runs. */
+simpleota_result_t simpleota_apply(void);
+
+/** Point check-ins and status posts at another SimpleOTA server. Same rules
+ *  as base_url: https:// with a host. Firmware downloads still use the
+ *  offer's pre-signed URL. ESP_ERR_INVALID_ARG keeps the previous URL;
+ *  ESP_ERR_INVALID_STATE before init or while the managed task runs. */
+esp_err_t simpleota_set_server_url(const char *url);
+
+/** The version label of the last offer, or "" when there is none. Valid
+ *  until the next check. */
+const char *simpleota_last_offered_version(void);
 
 /**
  * Confirm the currently running trial image (manual_confirm mode, called

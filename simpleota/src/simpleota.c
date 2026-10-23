@@ -47,6 +47,14 @@ _Static_assert((int)SOTA_EVENT_CHECK_DONE == (int)SIMPLEOTA_EVENT_CHECK_DONE &&
                    (int)SOTA_EVENT_CONFIRMED == (int)SIMPLEOTA_EVENT_CONFIRMED &&
                    (int)SOTA_EVENT_ROLLING_BACK == (int)SIMPLEOTA_EVENT_ROLLING_BACK,
                "sota_app.h events match simpleota_event_id_t");
+_Static_assert((int)SOTA_APPLY_OK == (int)SIMPLEOTA_OK &&
+                   (int)SOTA_APPLY_CHECKSUM_FAIL == (int)SIMPLEOTA_CHECKSUM_FAIL &&
+                   (int)SOTA_APPLY_FLASH_FAIL == (int)SIMPLEOTA_FLASH_FAIL &&
+                   (int)SOTA_APPLY_NO_OFFER == (int)SIMPLEOTA_NO_OFFER &&
+                   (int)SOTA_APPLY_SIGNATURE_FAIL == (int)SIMPLEOTA_SIGNATURE_FAIL &&
+                   (int)SOTA_APPLY_REBOOT_PENDING == (int)SIMPLEOTA_REBOOT_PENDING &&
+                   (int)SOTA_APPLY_UNCONFIRMED == (int)SIMPLEOTA_UNCONFIRMED,
+               "simpleota_result_t mirrors sota_apply_result_t");
 
 static const char *TAG = "simpleota";
 
@@ -80,6 +88,7 @@ typedef struct {
     sota_runner_t runner;
     char *str[STR_COUNT];
     bool initialized;
+    bool manual_confirm;
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
     void *user_ctx;
 } simpleota_t;
@@ -182,7 +191,7 @@ static esp_err_t init_engine(const simpleota_config_t *config)
         .check_interval_s = config->check_interval_s,
         .confirm_timeout_s = config->confirm_timeout_s,
         .http_timeout_ms = CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS,
-        .auto_confirm = !config->manual_confirm,
+        .auto_confirm = false, /* Managed mode only: see simpleota_start(). */
         .auto_reboot = !config->disable_auto_reboot,
         .rollback = SOTA_ROLLBACK,
         .user = &s,
@@ -232,6 +241,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
     s.runner.ctx = config->user_ctx;
     s.runner.stack_size = CONFIG_SIMPLEOTA_TASK_STACK_SIZE;
     s.runner.priority = CONFIG_SIMPLEOTA_TASK_PRIORITY;
+    s.manual_confirm = config->manual_confirm;
     s.event_cb = config->event_cb;
     s.user_ctx = config->user_ctx;
     s.initialized = true;
@@ -245,17 +255,63 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
 
 esp_err_t simpleota_start(void)
 {
-    if (!s.initialized) return ESP_ERR_INVALID_STATE;
-    return sota_runner_start(&s.runner, "simpleota") ? ESP_OK : ESP_ERR_NO_MEM;
+    if (!s.initialized || s.runner.task) return ESP_ERR_INVALID_STATE;
+    s.engine.cfg.auto_confirm = !s.manual_confirm;
+    if (sota_runner_start(&s.runner, "simpleota")) return ESP_OK;
+    s.engine.cfg.auto_confirm = false;
+    return ESP_ERR_NO_MEM;
 }
 
 /* The task stops between steps, so a flash write is never interrupted. */
 esp_err_t simpleota_stop(void)
 {
-    if (sota_runner_stop(&s.runner, 60000)) return ESP_OK;
-    ESP_LOGW(TAG, "stop: task did not exit within 60 s");
-    return ESP_ERR_TIMEOUT;
+    if (!sota_runner_stop(&s.runner, 60000)) {
+        ESP_LOGW(TAG, "stop: task did not exit within 60 s");
+        return ESP_ERR_TIMEOUT;
+    }
+    s.engine.cfg.auto_confirm = false;
+    return ESP_OK;
 }
+
+/* Polling mode belongs to the app's own task; the managed task owns the
+ * engine while it runs. */
+static bool polling_allowed(const char *caller)
+{
+    if (!s.initialized) return false;
+    if (!s.runner.task) return true;
+    ESP_LOGW(TAG, "%s: the managed task is running; call simpleota_stop() first", caller);
+    return false;
+}
+
+bool simpleota_check(void)
+{
+    return polling_allowed("check") && sota_engine_check(&s.engine);
+}
+
+simpleota_result_t simpleota_apply(void)
+{
+    if (!polling_allowed("apply")) return SIMPLEOTA_NO_OFFER;
+    return (simpleota_result_t)sota_engine_apply(&s.engine);
+}
+
+esp_err_t simpleota_set_server_url(const char *url)
+{
+    if (!s.initialized || s.runner.task) return ESP_ERR_INVALID_STATE;
+    const sota_url_status_t status = sota_validate_server_url(url);
+    if (status != SOTA_URL_OK) {
+        ESP_LOGW(TAG, "set_server_url rejected (%s); keeping %s", sota_url_status_name(status),
+                 s.engine.cfg.server_url);
+        return ESP_ERR_INVALID_ARG;
+    }
+    char *copy = strdup(url);
+    if (!copy) return ESP_ERR_NO_MEM;
+    free(s.str[STR_BASE_URL]);
+    s.str[STR_BASE_URL] = copy;
+    s.engine.cfg.server_url = copy;
+    return ESP_OK;
+}
+
+const char *simpleota_last_offered_version(void) { return s.engine.offer.version; }
 
 esp_err_t simpleota_check_now(void)
 {

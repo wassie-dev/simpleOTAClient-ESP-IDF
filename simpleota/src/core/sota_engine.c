@@ -285,16 +285,17 @@ typedef char sota_image_id_fits_state[
 
 /* Note the running image. One that changed with no update to account for
  * it came another way: a serial flash, perhaps of another project, so the
- * stored build no longer describes it. It reports build 0, or an older
- * build in its stored number would refuse every offer. */
+ * stored build no longer describes it. It reports the build it declares,
+ * or 0, or a stored build above its own would refuse every offer. */
 static void note_image(sota_engine_t *e, const sota_boot_info_t *info,
                        sota_boot_outcome_t outcome)
 {
     if (!info->image_id[0] || !strcmp(info->image_id, e->st.image_id)) return;
-    if (outcome == SOTA_BOOT_NONE && !e->st.conf_pend && e->st.live.build) {
-        static const sota_identity_t none;
-        SOTA_LOGW("running an image SimpleOTA did not install; reporting build 0");
-        sota_state_set_identity(&none);
+    if (outcome == SOTA_BOOT_NONE && !e->st.conf_pend) {
+        sota_identity_t id = {e->cfg.image_build, "", ""};
+        SOTA_LOGW("running an image SimpleOTA did not install; reporting build %u",
+                  (unsigned)id.build);
+        sota_state_set_identity(&id);
     }
     sota_state_set_image_id(info->image_id);
     sota_engine_reload(e);

@@ -191,6 +191,7 @@ static esp_err_t init_engine(const simpleota_config_t *config)
                 .nvs_schema_version = config->nvs_schema_version ? config->nvs_schema_version : 1,
             },
         .version_label = s.str[STR_VERSION_LABEL],
+        .image_build = config->image_build,
         .check_interval_s = config->check_interval_s,
         .confirm_timeout_s = config->confirm_timeout_s,
         .http_timeout_ms = CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS,

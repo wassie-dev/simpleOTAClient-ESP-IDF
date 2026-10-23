@@ -58,6 +58,8 @@ typedef struct {
     const char *server_url;     /**< NULL: SOTA_DEFAULT_SERVER_URL. */
     sota_device_info_t device;
     const char *version_label;  /**< NULL: the stored one. */
+    uint32_t image_build;       /**< This image's build, reported when SimpleOTA
+                                     did not install it (a USB flash). 0: unknown. */
     uint32_t check_interval_s;  /**< 0: the default. */
     uint32_t confirm_timeout_s; /**< 0: the default. Clamped to [10, 86400]. */
     uint32_t http_timeout_ms;   /**< The adapter's; sizes the watchdog margin. */

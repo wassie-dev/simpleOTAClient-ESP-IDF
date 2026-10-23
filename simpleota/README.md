@@ -115,6 +115,7 @@ All fields of `simpleota_config_t` (strings are copied at init):
 | `labels_json` | omitted | Reserved: sent verbatim on check-ins, not yet consumed by the platform |
 | `security_mode` | omitted | `SIMPLEOTA_SECURITY_SIGNED` to enforce signed firmware |
 | `version_label` | last persisted | Display-only version string |
+| `image_build` | 0 | This image's build number, reported when it was flashed some other way than SimpleOTA, such as over USB. See [TLS](#tls) |
 | `nvs_schema_version` | 1 | On-device data schema the firmware expects |
 | `check_interval_s` | 3600 | Steady-state poll interval |
 | `initial_delay_ms` | 0 | Delay before the first check after `simpleota_start()` |
@@ -351,8 +352,10 @@ is refused (`downgrade_refused`, `SIMPLEOTA_DOWNGRADE`), because an old
 image's signature still verifies and old builds can carry fixed bugs. To go
 back, release the old code under a new, higher build number. The running
 build is the one stored with the image SimpleOTA installed: an image flashed
-some other way, such as over serial, reports build 0, so a device reused for
-another project takes that project's builds.
+some other way, such as over serial, reports `image_build`, or build 0 when
+that is not set, so a device reused for another project takes that project's
+builds. Set `image_build` in release firmware you may also flash over USB,
+so the server does not replace it with an older release.
 
 ### Task watchdog warnings during the handshake
 
@@ -422,6 +425,7 @@ The [Arduino](https://github.com/xanderwasserman/SimpleOTAClient-Arduino) and [E
 | TLS trust | `setCACert(pem)` | `config.cert_pem` |
 | Signing keys | `setSigningPublicKey()`, `addSigningPublicKey()` | `config.signing_keys` |
 | Build and offer | `currentBuild()`, `lastOfferedVersion()` | `simpleota_current_build()`, `simpleota_last_offered_version()` |
+| Build of a USB-flashed image | `setImageBuild(build)` | `config.image_build` |
 | Logging | `setDebug(true)` | `esp_log_level_set("simpleota", ...)` |
 | HTTP timeout | `-DSIMPLEOTA_HTTP_TIMEOUT_MS` | `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` |
 

@@ -121,6 +121,9 @@ typedef struct {
                                         check-ins, but not yet consumed by the platform. */
     const char *security_mode;     /**< SIMPLEOTA_SECURITY_* or NULL. */
     const char *version_label;     /**< NULL = last persisted value from NVS. */
+    uint32_t image_build;          /**< This image's build number, reported when
+                                        SimpleOTA did not install it (a USB flash).
+                                        0 = unknown: such an image reports 0. */
     uint8_t nvs_schema_version;    /**< 0 => 1. */
     uint32_t check_interval_s;     /**< 0 => 3600. */
     uint32_t initial_delay_ms;     /**< Delay before the first check after start().

@@ -7,7 +7,7 @@
  * and is sent again on later checks: a few quick retries, then at the
  * normal check interval.
  *
- * No ESP-IDF types, so the host tests can include this header.
+ * No platform types, so the host tests can include this header.
  */
 
 #ifndef SOTA_REPORT_H

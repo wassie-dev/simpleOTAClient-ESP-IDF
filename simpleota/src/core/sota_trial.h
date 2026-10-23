@@ -1,18 +1,24 @@
 /**
  * sota_trial.h - what a boot means for a saved trial record.
  *
- * The trial record uses the NVS keys that every release of this component
- * reads and writes: sota_trial (1 = trial, 2 = a rollback happened),
- * sota_new_part (where the update went) and the prev_* snapshot. do_apply()
- * also writes sota_staged before the boot slot switches and removes it
- * straight after, so a record whose slot switch never happened can be told
- * apart from a rollback. A release that does not know sota_staged ignores
- * it, and a record written without it reads like any other, so updates in
- * either direction between releases read the same way.
+ * The trial record uses NVS keys that every release of both clients reads
+ * and writes: sota_trial (1 = trial, 2 = a rollback happened),
+ * sota_new_part (where the update went) and sota_prev_part (the partition
+ * the update replaced). Arduino releases up to 0.6.0 write only
+ * sota_prev_part; ESP-IDF releases write both. The classifier uses
+ * sota_new_part when it is there and falls back to sota_prev_part, so a
+ * record from any earlier release of either client reads the way that
+ * release meant it.
+ *
+ * The apply path also writes sota_staged before the boot slot switches and
+ * removes it straight after, so a record whose slot switch never happened
+ * can be told apart from a rollback. A release that does not know
+ * sota_staged ignores it, and a record written without it reads like any
+ * other, so updates in either direction between releases read the same way.
  *
  * Any trial value other than 0 and 2 is a trial.
  *
- * No ESP-IDF types, so the host tests can include this header.
+ * No platform types, so the host tests can include this header.
  */
 
 #ifndef SOTA_TRIAL_H
@@ -33,9 +39,9 @@ typedef enum {
 } sota_boot_outcome_t;
 
 /**
- * sota_staged values. do_apply() writes STARTED first, then the previous
- * image's identity, then SNAPSHOT, and only then overwrites the live
- * identity with the new build's.
+ * sota_staged values. The apply path writes STARTED first, then the
+ * previous image's identity, then SNAPSHOT, and only then overwrites the
+ * live identity with the new build's.
  */
 enum {
     SOTA_STAGED_STARTED = 1,
@@ -46,6 +52,7 @@ typedef struct {
     uint8_t trial;          /**< sota_trial. */
     uint8_t staged;         /**< sota_staged, 0 when missing. */
     uint32_t new_part;      /**< sota_new_part, 0 when missing. */
+    uint32_t prev_part;     /**< sota_prev_part, 0 when missing. */
     uint32_t running_part;  /**< Running partition address, 0 when unknown. */
     uint32_t boot_part;     /**< Partition the next boot selects, 0 when unknown. */
     bool deep_sleep_wake;   /**< This boot is a wake from deep sleep. */
@@ -57,17 +64,30 @@ static inline sota_boot_outcome_t sota_classify_boot(const sota_boot_facts_t *f)
      * trial is a record cut short before the slot switch. */
     if (f->trial == 0) return f->staged ? SOTA_BOOT_ABANDONED : SOTA_BOOT_NONE;
     if (f->trial == 2) return SOTA_BOOT_REPORT_PENDING;
-    if (f->running_part == 0 || f->new_part == 0) return SOTA_BOOT_INCOMPLETE;
-    /* A trial ends at deep sleep. With CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_
-     * DEEP_SLEEP the bootloader resumes the image on a wake, which would
-     * otherwise give an image that sleeps before it is confirmed a fresh
-     * confirm timeout on every wake, so it would never roll back. */
-    if (f->running_part == f->new_part) {
-        return f->deep_sleep_wake ? SOTA_BOOT_SLEPT_IN_TRIAL : SOTA_BOOT_TRIAL;
+    if (f->running_part == 0) return SOTA_BOOT_INCOMPLETE;
+
+    bool on_new;
+    if (f->new_part != 0) {
+        on_new = f->running_part == f->new_part;
+    } else if (f->prev_part != 0) {
+        on_new = f->running_part != f->prev_part;
+    } else {
+        return SOTA_BOOT_INCOMPLETE;
     }
+
+    /* A trial ends at deep sleep. Where the bootloader resumes the image on
+     * a wake without validating it (CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_
+     * SLEEP), an image that sleeps before it is confirmed would otherwise
+     * get a fresh confirm timeout on every wake, and never roll back. */
+    if (on_new) return f->deep_sleep_wake ? SOTA_BOOT_SLEPT_IN_TRIAL : SOTA_BOOT_TRIAL;
+
     /* A deep-sleep wake can resume the old image while the boot slot already
      * points at the new one, so the slot switch did happen. */
-    if (f->deep_sleep_wake && f->boot_part == f->new_part) return SOTA_BOOT_WAITING;
+    if (f->deep_sleep_wake && f->boot_part != 0 &&
+        (f->new_part != 0 ? f->boot_part == f->new_part
+                          : f->boot_part != f->running_part)) {
+        return SOTA_BOOT_WAITING;
+    }
     if (f->staged) return SOTA_BOOT_ABANDONED;
     /* Any other reset that is not on the new image means it did not run,
      * which is a rollback. */
@@ -83,6 +103,18 @@ static inline bool sota_abandon_restores_identity(uint8_t staged)
     return staged >= SOTA_STAGED_SNAPSHOT;
 }
 
+/**
+ * Arduino's verifyRollbackLater(): keep an image the bootloader still has
+ * on probation (pending verify) only when it is a SimpleOTA trial. Any
+ * other pending image, such as one written by ArduinoOTA, is left for the
+ * core to accept.
+ */
+static inline bool sota_hold_pending_image(bool image_pending, sota_boot_outcome_t outcome)
+{
+    return image_pending &&
+           (outcome == SOTA_BOOT_TRIAL || outcome == SOTA_BOOT_SLEPT_IN_TRIAL);
+}
+
 /** esp_reset_reason_t values used for rollback reasons. */
 enum {
     SOTA_RST_POWERON = 1,
@@ -94,6 +126,17 @@ enum {
     SOTA_RST_DEEPSLEEP = 8,
     SOTA_RST_BROWNOUT = 9,
 };
+
+/**
+ * The reset was a crash or a watchdog. A trial image that crashed has
+ * failed its trial: without the bootloader's probation it would otherwise
+ * get a fresh confirm timeout on every boot, and never roll back.
+ */
+static inline bool sota_reset_is_crash(int reset_reason)
+{
+    return reset_reason == SOTA_RST_PANIC || reset_reason == SOTA_RST_INT_WDT ||
+           reset_reason == SOTA_RST_TASK_WDT || reset_reason == SOTA_RST_WDT;
+}
 
 /** Reason sent with rolled_back, from the reset that ended the trial. */
 static inline const char *sota_rollback_reason(int reset_reason)

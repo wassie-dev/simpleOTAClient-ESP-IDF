@@ -1,9 +1,7 @@
 /**
  * sota_signing.c - implementation. See header for the contract.
  *
- * C port of SimpleOTAClient-Arduino's SimpleOTASigning.cpp (v0.4.0);
- * behavior is kept byte-identical to the Arduino reference. Kept free of
- * ESP-IDF headers on purpose: everything here compiles with plain cc for
+ * Kept free of platform headers on purpose: everything here compiles with plain cc for
  * the host-side unit tests in test/host/.
  */
 

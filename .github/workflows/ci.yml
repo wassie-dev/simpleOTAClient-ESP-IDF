@@ -6,13 +6,21 @@ on:
   pull_request:
 
 jobs:
-  host-tests:
-    name: Host tests (signing, sha256, json, reports)
+  core-sync:
+    name: Vendored core matches its commit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build and run
-        run: make -C test/host test
+      - name: Read the core commit
+        id: core
+        run: echo "sha=$(cat simpleota/src/core/CORE_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: wassie-dev/simpleOTAClient-core
+          ref: ${{ steps.core.outputs.sha }}
+          path: core
+      - name: Compare
+        run: core/scripts/sync-core.sh --check simpleota/src/core
 
   build-examples:
     name: "${{ matrix.example }} (IDF ${{ matrix.idf }}, ${{ matrix.target }}, ${{ matrix.wdt }})"

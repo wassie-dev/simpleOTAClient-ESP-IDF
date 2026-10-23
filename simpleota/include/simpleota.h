@@ -25,8 +25,9 @@
  *     CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
  *
  * Both ship with the first serial flash and cannot change over OTA. Without
- * bootloader rollback the component still updates firmware, but a new image
- * is accepted on its first boot and reported "confirmed".
+ * bootloader rollback the component rolls a failed trial back itself
+ * (CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK), but cannot catch a crash that comes
+ * before simpleota_init().
  *
  * The component is a process-wide singleton (one instance per device);
  * a second simpleota_init() returns ESP_ERR_INVALID_STATE.
@@ -155,8 +156,8 @@ esp_err_t simpleota_check_now(void);
  * Confirm the currently running trial image (manual_confirm mode, called
  * after the app's own health checks pass). Marks the image valid in the
  * bootloader, cancels the confirm timer, and queues the "confirmed" report.
- * Returns ESP_OK, also when there is no trial. Returns the bootloader's
- * error when it cannot record the image as good; the trial then keeps
+ * Returns ESP_OK, also when there is no trial. Returns ESP_FAIL when the
+ * bootloader cannot record the image as good; the trial then keeps
  * running, so call again.
  */
 esp_err_t simpleota_confirm(void);

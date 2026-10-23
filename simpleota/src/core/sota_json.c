@@ -1,4 +1,4 @@
-/* sota_json.c - see header. Port of the Arduino client's scanner. */
+/* sota_json.c - see header. C port of the Arduino client's scanner. */
 
 #include "sota_json.h"
 
@@ -45,6 +45,11 @@ static bool json_find_value(const char *s, const char *key, size_t *val_start) {
         }
     }
     return false;
+}
+
+bool sota_json_has_key(const char *json, const char *key) {
+    size_t p;
+    return json_find_value(json, key, &p);
 }
 
 bool sota_json_get_string(const char *json, const char *key, char *out,

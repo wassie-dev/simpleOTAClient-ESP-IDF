@@ -1,0 +1,89 @@
+/**
+ * sota_url.h - the server base URL for check-ins and status posts.
+ *
+ * Firmware downloads use the pre-signed URL from the offer instead; the
+ * apply path checks that one starts with https:// on its own.
+ *
+ * No platform types, so the host tests can include this header.
+ */
+
+#ifndef SOTA_URL_H
+#define SOTA_URL_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+
+#define SOTA_DEFAULT_SERVER_URL "https://simpleota.com"
+/** Longest base URL accepted, without the terminating NUL. */
+#define SOTA_SERVER_URL_MAX_LEN 256u
+
+typedef enum {
+    SOTA_URL_OK = 0,
+    SOTA_URL_NOT_HTTPS = 1,
+    SOTA_URL_MALFORMED = 2,
+} sota_url_status_t;
+
+/** True when url starts with scheme, ignoring the case of the URL. */
+static inline bool sota_url_has_scheme(const char *url, const char *scheme)
+{
+    for (; *scheme; ++url, ++scheme) {
+        char c = *url >= 'A' && *url <= 'Z' ? (char)(*url - 'A' + 'a') : *url;
+        if (c != *scheme) return false;
+    }
+    return true;
+}
+
+/**
+ * An https:// URL with a host, at most SOTA_SERVER_URL_MAX_LEN characters,
+ * and no spaces or control characters.
+ */
+static inline sota_url_status_t sota_validate_server_url(const char *url)
+{
+    if (!url || !url[0]) return SOTA_URL_MALFORMED;
+    size_t len = strlen(url);
+    if (len > SOTA_SERVER_URL_MAX_LEN) return SOTA_URL_MALFORMED;
+    for (size_t i = 0; i < len; ++i) {
+        unsigned char c = (unsigned char)url[i];
+        if (c <= 0x20u || c == 0x7fu) return SOTA_URL_MALFORMED;
+    }
+    if (sota_url_has_scheme(url, "http://") && !sota_url_has_scheme(url, "https://"))
+        return SOTA_URL_NOT_HTTPS;
+    if (!sota_url_has_scheme(url, "https://")) return SOTA_URL_MALFORMED;
+    const char *slash = strchr(url + 8, '/');
+    return (slash ? (size_t)(slash - url) : len) == 8u ? SOTA_URL_MALFORMED : SOTA_URL_OK;
+}
+
+static inline const char *sota_url_status_name(int status)
+{
+    if (status == SOTA_URL_NOT_HTTPS) return "not_https";
+    return status == SOTA_URL_OK ? "ok" : "malformed";
+}
+
+/** candidate when it is valid, else current. *status gets the verdict. */
+static inline const char *sota_select_server_url(const char *current, const char *candidate,
+                                                 sota_url_status_t *status)
+{
+    sota_url_status_t st = sota_validate_server_url(candidate);
+    if (status) *status = st;
+    return st == SOTA_URL_OK ? candidate : current;
+}
+
+/**
+ * base + path into out, with trailing slashes of base removed. Returns
+ * false, leaving out untouched, when it does not fit.
+ */
+static inline bool sota_build_api_url(const char *base, const char *path, char *out,
+                                      size_t out_len)
+{
+    if (!base || !path || !out || out_len == 0) return false;
+    size_t n = strlen(base);
+    while (n > 8u && base[n - 1] == '/') --n;
+    size_t plen = strlen(path);
+    if (n >= out_len || plen > (out_len - 1u) - n) return false;
+    memcpy(out, base, n);
+    memcpy(out + n, path, plen + 1u);
+    return true;
+}
+
+#endif /* SOTA_URL_H */

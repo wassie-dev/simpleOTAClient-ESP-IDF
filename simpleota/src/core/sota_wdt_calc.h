@@ -1,23 +1,25 @@
 /**
- * sota_wdt.h - the chip watchdog that resets a hung trial.
+ * sota_wdt_calc.h - deadline maths for the chip watchdog that resets a hung
+ * trial.
  *
  * During a SimpleOTA trial the RTC (or LP) watchdog runs on the chip's slow
- * clock, so it still fires when a hang stops the confirm esp_timer. It
- * resets the chip, and the bootloader then returns to the previous image.
- * It waits for the confirm timeout plus a margin: the larger of the floor
- * from sota_wdt_floor_sec() and 10 percent of the confirm timeout.
+ * clock, so it still fires when a hang stops the confirm timer. It resets
+ * the chip, and the bootloader then returns to the previous image, or,
+ * without bootloader rollback, the engine rolls back the trial that booted
+ * after a watchdog. It waits
+ * for the confirm timeout plus a margin: the larger of a floor and 10
+ * percent of the confirm timeout.
  *
- * The confirm timeout's own rollback runs in the component task, after the
- * request it may be waiting on. During a trial that is at most one request
- * (sent once, with queued reports held back), and the floor covers it, so
- * the timeout rolls back first and reports confirm_timeout.
+ * The floor covers one request, so the confirm timeout's own rollback, which
+ * may be waiting behind that request, still runs first and reports
+ * confirm_timeout.
  *
- * The stage-value maths has no ESP-IDF types, so the host tests can
- * include it. The hardware calls are in sota_wdt.c.
+ * No platform types, so the host tests can include this header. The
+ * hardware calls belong to the platform port.
  */
 
-#ifndef SOTA_WDT_H
-#define SOTA_WDT_H
+#ifndef SOTA_WDT_CALC_H
+#define SOTA_WDT_CALC_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -70,16 +72,4 @@ static inline uint32_t sota_wdt_stage_ticks(uint32_t confirm_sec, uint32_t floor
     return ticks < 2 ? 2u : (uint32_t)ticks;
 }
 
-/** Arm the watchdog for confirm_sec plus the margin, and stop it again
- *  before deep sleep. Logs a warning when the deadline is clamped. Returns
- *  false when the watchdog is opted out or this target has no wdt_hal. */
-bool sota_wdt_arm(uint32_t confirm_sec);
-
-/** Stop the watchdog if this component armed it. */
-void sota_wdt_disarm(void);
-
-/** On a boot that is not a trial: stop a watchdog a reset left running, on
- *  a build where the bootloader does not reprogram it. */
-void sota_wdt_quiesce(void);
-
-#endif /* SOTA_WDT_H */
+#endif /* SOTA_WDT_CALC_H */

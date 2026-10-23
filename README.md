@@ -24,8 +24,12 @@ New to ESP-IDF, or want to test on real hardware? See
 [docs/hardware-testing.md](docs/hardware-testing.md) for a full
 install-to-first-OTA walkthrough.
 
-Host-side tests for the security-critical modules and the trial decisions:
-`make -C test/host test`.
+The update logic lives in
+[SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) and
+is copied into `simpleota/src/core` as plain files, with its host tests there.
+To move to another core commit, check it out beside this repository and run
+`../SimpleOTAClient-core/scripts/sync-core.sh simpleota/src/core`; CI fails
+when the copy differs from the commit in `simpleota/src/core/CORE_VERSION`.
 
 **Releasing** (mirrors SimpleOTAClient-Arduino): bump `version:` in
 [simpleota/idf_component.yml](simpleota/idf_component.yml) and merge to

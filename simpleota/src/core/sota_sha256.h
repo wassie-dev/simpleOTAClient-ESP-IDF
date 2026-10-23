@@ -1,7 +1,7 @@
 /**
  * sota_sha256.h - minimal FIPS 180-4 SHA-256, no dependencies.
  *
- * Vendored so the component builds identically on every IDF version:
+ * Vendored so the clients build identically on every IDF version:
  * IDF <= 5.x exposes the legacy mbedtls/sha256.h API, IDF 6 (mbedTLS 4)
  * is PSA-only, and neither shape is worth a dual code path for hashing a
  * download stream. Validated against the NIST test vectors in

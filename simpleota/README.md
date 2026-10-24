@@ -105,12 +105,12 @@ returns the last offer's version label.
 
 ## API reference
 
-The **[API reference](https://wassie-dev.github.io/simpleotaclient-core/latest/)** documents every
+The **[API reference](https://wassie-dev.github.io/simpleOTAClient-core/latest/)** documents every
 function, result, event and configuration field. It is generated from
 [`include/simpleota.h`](include/simpleota.h), which has the same comments.
 In short:
 
-- Fill a [`simpleota_config_t`](https://wassie-dev.github.io/simpleotaclient-core/latest/structsimpleota__config__t.html)
+- Fill a [`simpleota_config_t`](https://wassie-dev.github.io/simpleOTAClient-core/latest/structsimpleota__config__t.html)
   from all zeros and call `simpleota_init()` early. Strings are copied.
 - Managed mode: `simpleota_start()`, `simpleota_stop()`,
   `simpleota_check_now()`.

@@ -91,18 +91,15 @@ extern "C" {
 /** @} */
 
 /**
- * @name Security modes
- * Values for simpleota_config_t::security_mode, as the SimpleOTA platform
- * names them. The server offers a device only artifacts of the same mode,
- * or any artifact when the device reports none.
- * @{
+ * The security mode a device reports on check-ins. The server offers it only
+ * artifacts of the same mode, or any artifact when it reports none.
  */
-#define SIMPLEOTA_SECURITY_BASIC "basic"   /**< Unsigned artifacts, verified by checksum. */
-#define SIMPLEOTA_SECURITY_TOKEN "token"   /**< Per-device token authentication, which the
-                                              platform supports in part; the client
-                                              only reports it. */
-#define SIMPLEOTA_SECURITY_SIGNED "signed" /**< Ed25519-signed firmware only; needs a pinned key. */
-/** @} */
+typedef enum {
+    SIMPLEOTA_SECURITY_NONE = 0, /**< Report none: every artifact matches. */
+    SIMPLEOTA_SECURITY_BASIC,    /**< Unsigned artifacts, verified by checksum. */
+    SIMPLEOTA_SECURITY_SIGNED,   /**< Signed artifacts only, each verified against a
+                                      pinned key before it can boot. */
+} simpleota_security_t;
 
 /** What simpleota_apply() did. The values are stable across releases. */
 typedef enum {
@@ -200,7 +197,7 @@ typedef struct {
                                         check-ins, but not yet consumed by the platform.
                                         Left out, with a warning, when it is not one
                                         JSON object. */
-    const char *security_mode;     /**< One of the security modes above, or NULL. */
+    simpleota_security_t security_mode; /**< Default: SIMPLEOTA_SECURITY_NONE. */
     const char *version_label;     /**< NULL = last persisted value from NVS. */
     uint32_t image_build;          /**< This image's build number, reported when
                                         SimpleOTA did not install it (a USB flash).
@@ -254,8 +251,9 @@ typedef struct {
  * @param config  The configuration; copied, so it need not outlive the call.
  * @retval ESP_OK                 Ready.
  * @retval ESP_ERR_INVALID_ARG    A missing token or one with control
- *                                characters, an unparseable signing key, or
- *                                a base_url that is not https://.
+ *                                characters, an unparseable signing key,
+ *                                a security_mode out of range, or a
+ *                                base_url that is not https://.
  * @retval ESP_ERR_INVALID_STATE  Already initialized, or neither the
  *                                certificate bundle nor a cert_pem is
  *                                available.

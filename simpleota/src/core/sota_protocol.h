@@ -37,7 +37,7 @@ typedef struct {
     const char *hardware_revision;  /**< Board revision. */
     const char *partition_profile;  /**< Partition layout name. */
     const char *channel;            /**< Release channel. */
-    const char *security_mode;      /**< "basic", "token" or "signed", as the platform names them. */
+    const char *security_mode;      /**< "basic" or "signed", or NULL to report none. */
     const char *labels_json;        /**< A JSON object, embedded verbatim. */
     uint8_t nvs_schema_version;     /**< On-device data schema the firmware expects. */
 } sota_device_info_t;

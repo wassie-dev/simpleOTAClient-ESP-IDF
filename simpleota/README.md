@@ -472,9 +472,15 @@ because Arduino-ESP32 has no Kconfig and no certificate bundle:
 Devices update from 0.2.x over the air, also in the middle of a trial: the
 NVS layout is unchanged, and a trial that fails returns to the old release,
 which reads the rollback as it always has. 1.0.0 adds one NVS key,
-`sota_image`, which older releases ignore. Existing code compiles unchanged;
-what behaves differently:
+`sota_image`, which older releases ignore. Existing code compiles unchanged,
+unless it uses `SIMPLEOTA_SECURITY_TOKEN` or sets `security_mode` to a
+string; what behaves differently:
 
+- `security_mode` is now an enum, `simpleota_security_t`. The
+  `SIMPLEOTA_SECURITY_BASIC` and `SIMPLEOTA_SECURITY_SIGNED` names still
+  work. `SIMPLEOTA_SECURITY_TOKEN` is gone: the platform never used a
+  reported "token", and a device reporting it was offered neither basic nor
+  signed builds.
 - A `base_url` that is not `https://` fails `simpleota_init()` with
   `ESP_ERR_INVALID_ARG`, and download redirects are followed only to
   `https://` URLs.

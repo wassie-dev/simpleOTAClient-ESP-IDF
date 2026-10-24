@@ -66,7 +66,6 @@ enum {
     STR_PARTITION_PROFILE,
     STR_CHANNEL,
     STR_LABELS_JSON,
-    STR_SECURITY_MODE,
     STR_VERSION_LABEL,
     STR_CERT_PEM,
     STR_COUNT,
@@ -142,7 +141,6 @@ static bool copy_strings(const simpleota_config_t *cfg)
         [STR_PARTITION_PROFILE] = cfg->partition_profile,
         [STR_CHANNEL] = cfg->channel,
         [STR_LABELS_JSON] = cfg->labels_json,
-        [STR_SECURITY_MODE] = cfg->security_mode,
         [STR_VERSION_LABEL] = cfg->version_label,
         [STR_CERT_PEM] = cfg->cert_pem,
     };
@@ -152,8 +150,22 @@ static bool copy_strings(const simpleota_config_t *cfg)
     return true;
 }
 
+/* The platform's name for a mode; NULL leaves it out of check-ins. */
+static const char *security_mode_name(simpleota_security_t mode)
+{
+    switch (mode) {
+    case SIMPLEOTA_SECURITY_BASIC: return "basic";
+    case SIMPLEOTA_SECURITY_SIGNED: return "signed";
+    default: return NULL;
+    }
+}
+
 static esp_err_t init_engine(const simpleota_config_t *config)
 {
+    if ((unsigned)config->security_mode > SIMPLEOTA_SECURITY_SIGNED) {
+        ESP_LOGE(TAG, "security_mode %d is not a simpleota_security_t", (int)config->security_mode);
+        return ESP_ERR_INVALID_ARG;
+    }
     sota_url_status_t url = SOTA_URL_OK;
     if (config->base_url) url = sota_validate_server_url(config->base_url);
     if (url != SOTA_URL_OK) {
@@ -173,7 +185,7 @@ static esp_err_t init_engine(const simpleota_config_t *config)
                 .hardware_revision = s.str[STR_HARDWARE_REVISION],
                 .partition_profile = s.str[STR_PARTITION_PROFILE],
                 .channel = s.str[STR_CHANNEL],
-                .security_mode = s.str[STR_SECURITY_MODE],
+                .security_mode = security_mode_name(config->security_mode),
                 .labels_json = s.str[STR_LABELS_JSON],
                 .nvs_schema_version = config->nvs_schema_version ? config->nvs_schema_version : 1,
             },

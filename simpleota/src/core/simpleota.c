@@ -80,6 +80,7 @@ typedef struct {
     sota_runner_t runner;
     char *str[STR_COUNT];
     SemaphoreHandle_t polled;   /* Given when a polling call's task is done. */
+    TaskHandle_t volatile poll_task; /* That task, while it runs. */
     StaticSemaphore_t polled_buf;
     bool initialized;
     bool manual_confirm;
@@ -308,11 +309,13 @@ typedef struct {
 static void poll_task(void *arg)
 {
     poll_job_t *job = (poll_job_t *)arg;
+    s.poll_task = xTaskGetCurrentTaskHandle();
     if (job->apply) {
         job->result = sota_engine_apply(&s.engine);
     } else {
         job->offered = sota_engine_check(&s.engine);
     }
+    s.poll_task = NULL;
     xSemaphoreGive(s.polled);
     vTaskDelete(NULL);
 }
@@ -396,8 +399,11 @@ static void reboot_task(void *arg)
 esp_err_t simpleota_reboot_for_update(void)
 {
     if (!s.initialized || !sota_engine_update_waiting()) return ESP_ERR_INVALID_STATE;
-    /* From event_cb, on the managed task: its stack is big enough. */
-    if (sota_runner_on_task(&s.runner)) sota_engine_reboot_for_update(&s.engine);
+    /* From event_cb, on the managed task or a polling call's task: their
+     * stack is big enough. */
+    if (sota_runner_on_task(&s.runner) || xTaskGetCurrentTaskHandle() == s.poll_task) {
+        sota_engine_reboot_for_update(&s.engine);
+    }
     /* Otherwise stop the task first, so only one TLS session is open. */
     simpleota_stop();
     if (xTaskCreate(reboot_task, "sota_reboot", CONFIG_SIMPLEOTA_TASK_STACK_SIZE, NULL,

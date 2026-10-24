@@ -6,7 +6,7 @@ The client is now [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTA
 
 ### Upgrading
 
-- **The repository moved to [wassie-dev/SimpleOTAClient-ESP-IDF](https://github.com/wassie-dev/SimpleOTAClient-ESP-IDF).** GitHub redirects the old URL.
+- **The repository moved to [wassie-dev/simpleOTAClient-ESP-IDF](https://github.com/wassie-dev/simpleOTAClient-ESP-IDF).** GitHub redirects the old URL.
 - **The registry component is now `wassie-dev/simpleota`.** Change the dependency in your `idf_component.yml` (or run `idf.py add-dependency "wassie-dev/simpleota"`). `xanderwasserman/simpleota` keeps its 0.x releases and gets no further ones.
 - **Devices update from 0.2.x over the air**, mid-trial too. The NVS keys and their meanings are unchanged, and a trial that fails returns to the old release, which reads the rollback as it always has. 1.0.0 adds one key, `sota_image`, which older releases ignore.
 - **Existing code compiles unchanged**, unless it uses `SIMPLEOTA_SECURITY_TOKEN` or sets `security_mode` to a string. Every 0.2.x function and config field is still there.

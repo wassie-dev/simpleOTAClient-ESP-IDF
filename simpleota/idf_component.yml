@@ -1,9 +1,9 @@
 version: "1.0.0"
 description: "Managed ESP32 fleet OTA with canary rollouts, on-device Ed25519 verify, and automatic rollback. Arduino, PlatformIO, ESP-IDF."
-url: "https://github.com/wassie-dev/SimpleOTAClient-ESP-IDF"
-repository: "https://github.com/wassie-dev/SimpleOTAClient-ESP-IDF.git"
+url: "https://github.com/wassie-dev/simpleOTAClient-ESP-IDF"
+repository: "https://github.com/wassie-dev/simpleOTAClient-ESP-IDF.git"
 documentation: "https://wiki.simpleota.com/guides/esp-idf/"
-issues: "https://github.com/wassie-dev/SimpleOTAClient-ESP-IDF/issues"
+issues: "https://github.com/wassie-dev/simpleOTAClient-ESP-IDF/issues"
 license: "MIT"
 tags:
   - ota

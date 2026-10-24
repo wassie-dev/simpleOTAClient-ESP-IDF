@@ -98,7 +98,8 @@ typedef enum {
     SIMPLEOTA_SECURITY_NONE = 0, /**< Report none: every artifact matches. */
     SIMPLEOTA_SECURITY_BASIC,    /**< Unsigned artifacts, verified by checksum. */
     SIMPLEOTA_SECURITY_SIGNED,   /**< Signed artifacts only, each verified against a
-                                      pinned key before it can boot. */
+                                      pinned key before it can boot. Needs at least
+                                      one signing key. */
 } simpleota_security_t;
 
 /** What simpleota_apply() did. The values are stable across releases. */
@@ -164,12 +165,12 @@ typedef enum {
  */
 typedef struct {
     simpleota_event_id_t id; /**< What happened. */
-    const char *reason;   /**< A reason token (e.g. "checksum_mismatch"), the
-                               server's status for CHECK_DONE, or NULL. */
-    uint32_t build_number;/**< Build number the event refers to (0 if n/a). */
-    size_t bytes_done;    /**< DOWNLOAD_PROGRESS only. */
-    size_t bytes_total;   /**< DOWNLOAD_PROGRESS, and UPDATE_AVAILABLE (the
-                               offer's size); 0 when unknown. */
+    const char *reason;      /**< A reason token (e.g. "checksum_mismatch"), the
+                                  server's status for CHECK_DONE, or NULL. */
+    uint32_t build_number;   /**< The build the event is about, 0 when none. */
+    size_t bytes_done;       /**< DOWNLOAD_PROGRESS only. */
+    size_t bytes_total;      /**< DOWNLOAD_PROGRESS, and UPDATE_AVAILABLE (the
+                                  offer's size); 0 when unknown. */
 } simpleota_event_t;
 
 /** A pinned Ed25519 public key for signed-firmware verification. */
@@ -183,46 +184,50 @@ typedef struct {
  * copied at init; the struct and its strings need not outlive the call.
  */
 typedef struct {
-    const char *token;             /**< REQUIRED. Project token or per-device token. */
-    const char *base_url;          /**< Default "https://simpleota.com". Must be https://
+    const char *token;             /**< Required. Project token or per-device token. */
+    const char *base_url;          /**< Default: "https://simpleota.com". Must be https://
                                         with a host; anything else fails init. */
     const char *device_id;         /**< Default: Wi-Fi STA MAC "aa:bb:cc:dd:ee:ff". */
     const char *chip_family;       /**< Default: CONFIG_IDF_TARGET ("esp32", "esp32s3", ...),
                                         the chip the firmware is built for. */
-    const char *board_id;          /**< NULL = omitted from check-ins. */
-    const char *hardware_revision; /**< NULL = omitted. */
-    const char *partition_profile; /**< NULL = omitted. */
-    const char *channel;           /**< Release channel; NULL = omitted. */
+    const char *board_id;          /**< Board model. Default: left out of check-ins. */
+    const char *hardware_revision; /**< Board revision. Default: left out. */
+    const char *partition_profile; /**< Partition layout name. Default: left out. */
+    const char *channel;           /**< Release channel. Default: left out. */
     const char *labels_json;       /**< Reserved: pre-formed JSON object sent verbatim on
                                         check-ins, but not yet consumed by the platform.
                                         Left out, with a warning, when it is not one
                                         JSON object. */
-    simpleota_security_t security_mode; /**< Default: SIMPLEOTA_SECURITY_NONE. */
-    const char *version_label;     /**< NULL = last persisted value from NVS. */
+    simpleota_security_t security_mode; /**< Default: SIMPLEOTA_SECURITY_NONE.
+                                             SIGNED needs a signing key. */
+    const char *version_label;     /**< Default: the label stored with the update that
+                                        installed this image. */
     uint32_t image_build;          /**< This image's build number, reported when
                                         SimpleOTA did not install it (a USB flash).
-                                        0 = unknown: such an image reports 0.
+                                        Default: unknown, and such an image reports 0.
                                         Set it only in the exact image you upload,
                                         to the build SimpleOTA gives it. */
-    uint8_t nvs_schema_version;    /**< 0 => 1. */
-    uint32_t check_interval_s;     /**< 0 => 3600. */
+    uint8_t nvs_schema_version;    /**< The data schema this firmware expects. Default: 1. */
+    uint32_t check_interval_s;     /**< Seconds between checks. Default: 3600. */
     uint32_t initial_delay_ms;     /**< Delay before the first check after start().
-                                        Not a wait for the IP; see is_connected. */
-    uint32_t confirm_timeout_s;    /**< 0 => 300. Clamped to [10, 86400]. */
+                                        Default: none. Not a wait for the IP; see
+                                        is_connected. */
+    uint32_t confirm_timeout_s;    /**< Seconds a trial has to confirm. Default: 300.
+                                        Clamped to [10, 86400]. */
     bool manual_confirm;           /**< Managed mode: true = the app calls
                                         simpleota_confirm(); false = the first
                                         successful check-in confirms. Polling mode always
                                         needs simpleota_confirm(). */
-    bool disable_auto_reboot;      /**< true: app calls simpleota_reboot_for_update(). */
+    bool disable_auto_reboot;      /**< true: the app calls simpleota_reboot_for_update(). */
 
-    /** Pinned public keys for signed firmware (0..2; parsed at init,
-     *  init fails on an unparseable PEM rather than continuing unpinned). */
+    /** Pinned public keys for signed firmware, at most 2. Parsed at init,
+     *  which fails on a PEM that does not parse rather than run unpinned. */
     const simpleota_signing_key_t *signing_keys;
     uint8_t num_signing_keys;      /**< Entries in signing_keys. */
 
     /** Return false while the link is down (e.g. no IP yet). It is polled
      *  every second, and the check runs as soon as it returns true.
-     *  NULL = always try: start() must then come after the IP arrives, or
+     *  NULL: always try. start() must then come after the IP arrives, or
      *  the first check fails and the next is check_interval_s later. */
     bool (*is_connected)(void *user_ctx);
     /** Lifecycle events, called on the task that runs the update: the
@@ -237,7 +242,8 @@ typedef struct {
      *  specific CA, or several concatenated, instead (then the bundle is not
      *  used). */
     const char *cert_pem;
-    esp_err_t (*crt_bundle_attach)(void *conf); /**< Override bundle fn; NULL = default. */
+    esp_err_t (*crt_bundle_attach)(void *conf); /**< Another bundle's attach function.
+                                                     Default: ESP-IDF's bundle. */
 } simpleota_config_t;
 
 /**
@@ -252,8 +258,9 @@ typedef struct {
  * @retval ESP_OK                 Ready.
  * @retval ESP_ERR_INVALID_ARG    A missing token or one with control
  *                                characters, an unparseable signing key,
- *                                a security_mode out of range, or a
- *                                base_url that is not https://.
+ *                                a security_mode out of range or SIGNED
+ *                                without a key, or a base_url that is not
+ *                                https://.
  * @retval ESP_ERR_INVALID_STATE  Already initialized, or neither the
  *                                certificate bundle nor a cert_pem is
  *                                available.

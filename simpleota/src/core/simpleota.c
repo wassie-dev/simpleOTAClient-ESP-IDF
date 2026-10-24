@@ -166,6 +166,11 @@ static esp_err_t init_engine(const simpleota_config_t *config)
         SOTA_LOGE("security_mode %d is not a simpleota_security_t", (int)config->security_mode);
         return ESP_ERR_INVALID_ARG;
     }
+    /* Reporting signed without a key would take signed builds unverified. */
+    if (config->security_mode == SIMPLEOTA_SECURITY_SIGNED && !config->num_signing_keys) {
+        SOTA_LOGE("security_mode SIGNED needs a signing key");
+        return ESP_ERR_INVALID_ARG;
+    }
     sota_url_status_t url = SOTA_URL_OK;
     if (config->base_url) url = sota_validate_server_url(config->base_url);
     if (url != SOTA_URL_OK) {

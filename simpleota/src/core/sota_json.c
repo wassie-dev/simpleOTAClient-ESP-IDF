@@ -1,4 +1,4 @@
-/* sota_json.c - see header. C port of the Arduino client's scanner. */
+/* sota_json.c - see header. */
 
 #include "sota_json.h"
 

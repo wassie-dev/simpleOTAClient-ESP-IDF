@@ -6,8 +6,9 @@ config SIMPLEOTA_TASK_STACK_SIZE
     help
         The managed task performs TLS handshakes (esp_http_client with the
         certificate bundle) and response parsing on its own stack. The
-        short-lived task that posts the status for
-        simpleota_reboot_for_update() uses the same size. 8192 usually
+        short-lived tasks that roll back a trial without the managed task,
+        and post the status for simpleota_reboot_for_update(), use the same
+        size. 8192 usually
         works; the 12288 default leaves headroom on all targets.
 
 config SIMPLEOTA_TASK_PRIORITY

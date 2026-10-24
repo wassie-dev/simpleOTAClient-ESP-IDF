@@ -30,8 +30,7 @@ uint32_t sota_sys_now_ms(void)
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
-/* Created on first use: an Arduino client object can be constructed
- * before the scheduler runs. */
+/* Created on first use: the port has no init call of its own. */
 void sota_sys_lock(void)
 {
     if (!s_lock) {

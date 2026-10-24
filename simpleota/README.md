@@ -150,7 +150,7 @@ inline on the device row, and that `SIMPLEOTA_EVENT_UPDATE_FAILED` carries:
 
 | Reason | Stage |
 |---|---|
-| `downgrade_refused` | The offered build is not above the running one |
+| `downgrade_refused` | The offered build is not above the running one (reported once per boot) |
 | `insecure_url` | The download URL is not `https://` |
 | `signature_invalid` | A signed offer failed Ed25519 verification, or a required signature is missing |
 | `https_begin_failed` | The download connection could not be opened |
@@ -166,13 +166,16 @@ inline on the device row, and that `SIMPLEOTA_EVENT_UPDATE_FAILED` carries:
 | `update_end_failed` | The image failed ESP-IDF's image check, or the boot slot could not be switched |
 | `state_save_failed` | The trial record could not be saved to NVS before the slot switch |
 
-Once a boot has worked out what
-happened to a trial, its `confirmed` or `rolled_back` report goes to an outbox
-in NVS (two slots, oldest dropped first) and never holds up an update. Reports
-are kept until the server answers, across reboots: any HTTP response counts as
-delivered, and the device does not act on what it says. Without a response the
-report is sent again, first after 10 s (three times), then at the normal check
-interval.
+Once a boot has worked out what happened to a trial, its `confirmed` or
+`rolled_back` report goes to an outbox in NVS (two slots, oldest dropped
+first) and never holds up an update. Reports are kept until the server
+answers, across reboots: any HTTP response counts as delivered, and the
+device does not act on what it says. Without a response the report is sent
+again, first after 10 s (three times), then at the normal check interval.
+
+Check-ins and status posts retry once after 2 s when no response arrives
+(not during a trial), and never retry a response that arrived. The download
+does not retry; the next check can try again.
 
 ## Rollback
 
@@ -321,22 +324,22 @@ change over OTA. A new layout reaches a device only through a serial flash.
 
 ## Footprint
 
-Measured with ESP-IDF 5.3 and size optimization
+Measured with ESP-IDF 5.1.4 and size optimization
 (`CONFIG_COMPILER_OPTIMIZATION_SIZE=y`), building the `basic` example against
 the same project without SimpleOTA:
 
 | Target | Added to an app that already uses HTTPS, NVS and OTA | Added to a Wi-Fi-only app | `basic` example: free in a 1700 KB slot | `basic` example: free in a 1 MB slot |
 |---|---|---|---|---|
-| ESP32 | 31 KB flash, 1.5 KB RAM | 206 KB flash, 3.0 KB RAM | 48% | 14% |
-| ESP32-S3 | 31 KB flash, 1.5 KB RAM | 211 KB flash, 3.0 KB RAM | 48% | 14% |
-| ESP32-C6 | 34 KB flash, 1.5 KB RAM | 251 KB flash, 3.0 KB RAM | 42% | 4% |
+| ESP32 | 32 KB flash, 1.6 KB RAM | 204 KB flash, 3.5 KB RAM | 47% | 12% |
+| ESP32-S3 | 33 KB flash, 1.5 KB RAM | 208 KB flash, 3.8 KB RAM | 48% | 14% |
+| ESP32-C6 | 34 KB flash, 1.9 KB RAM | 245 KB flash, 4.1 KB RAM | 43% | 6% |
 
-RAM is static RAM (`.data` and `.bss`).
+RAM is static RAM (`.data`, `.bss` and IRAM code).
 
-The component itself (`libsimpleota.a`, including the vendored Ed25519 and
-SHA-256 code) is about 29 KB of flash. Most of the flash added to a Wi-Fi-only
-app is the HTTPS stack (mbedTLS, `esp_http_client` and the certificate
-bundle), which an app that already makes HTTPS requests has anyway.
+Most of the flash added to a Wi-Fi-only app is the HTTPS stack (mbedTLS,
+`esp_http_client` and the certificate bundle), which an app that already
+makes HTTPS requests has anyway; the rest is the component itself, including
+its Ed25519 and SHA-256 code.
 
 At run time the component's task uses a stack of
 `CONFIG_SIMPLEOTA_TASK_STACK_SIZE` bytes (12288 by default). A check
@@ -481,6 +484,9 @@ string; what behaves differently:
   work. `SIMPLEOTA_SECURITY_TOKEN` is gone: the platform never used a
   reported "token", and a device reporting it was offered neither basic nor
   signed builds.
+- `SIMPLEOTA_SECURITY_SIGNED` without a signing key fails
+  `simpleota_init()` with `ESP_ERR_INVALID_ARG`: such a device would be
+  offered signed builds it cannot verify.
 - A `base_url` that is not `https://` fails `simpleota_init()` with
   `ESP_ERR_INVALID_ARG`, and download redirects are followed only to
   `https://` URLs.

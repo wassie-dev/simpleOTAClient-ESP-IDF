@@ -30,6 +30,6 @@ examples:
 # Deliberately no cJSON dependency: the bundled "json" component left the
 # IDF core in 6.0 and version-conditional manifest rules behave differently
 # across component-manager generations, so responses are parsed with the
-# same minimal scanner the Arduino client uses (src/sota_json.c).
+# core's own minimal scanner (src/core/sota_json.c).
 dependencies:
   idf: ">=5.1"

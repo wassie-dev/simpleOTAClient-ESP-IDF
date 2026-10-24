@@ -5,7 +5,6 @@
 
 #include "sota_net_esp32.h"
 
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

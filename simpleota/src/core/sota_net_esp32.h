@@ -9,8 +9,6 @@
 #ifndef SOTA_NET_ESP32_H
 #define SOTA_NET_ESP32_H
 
-#include <stdint.h>
-
 #include "esp_err.h"
 #include "esp_http_client.h"
 

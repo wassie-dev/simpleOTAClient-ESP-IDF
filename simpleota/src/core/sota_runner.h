@@ -2,8 +2,7 @@
  * @file
  * @brief The managed task, implemented by the port (FreeRTOS on
  * ESP32): it checks in on the engine's schedule, applies what is offered,
- * and runs the confirm timeout's rollback. Both clients' managed modes are
- * this task, so they start, stop and supervise a trial the same way.
+ * and runs the confirm timeout's rollback. simpleota_start() runs it.
  */
 
 #ifndef SOTA_RUNNER_H

@@ -25,7 +25,7 @@ Signing here protects the delivery path. It is not Secure Boot. They stack if yo
 Starting a new project? [simpleOTA-starter-esp-idf](https://github.com/wassie-dev/simpleOTA-starter-esp-idf) is a template repo with a working ESP-IDF app and a GitHub Actions release workflow already set up.
 
 ```sh
-idf.py add-dependency "xanderwasserman/simpleota"
+idf.py add-dependency "wassie-dev/simpleota"
 ```
 
 ## Requirements
@@ -471,6 +471,10 @@ because Arduino-ESP32 has no Kconfig and no certificate bundle:
   certificates that SimpleOTA's hosts chain to, instead of the bundle.
 
 ## Upgrading from 0.2
+
+The component's registry name changes to `wassie-dev/simpleota`: replace
+`xanderwasserman/simpleota` in your `idf_component.yml`. The old name keeps
+its 0.2.x releases and gets no new ones.
 
 Devices update from 0.2.x over the air, also in the middle of a trial: the
 NVS layout is unchanged, and a trial that fails returns to the old release,

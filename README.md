@@ -2,14 +2,14 @@
 
 First-party ESP-IDF component for the [SimpleOTA](https://simpleota.com)
 firmware update platform, published to the Espressif Component Registry as
-[`xanderwasserman/simpleota`](https://components.espressif.com/components/xanderwasserman/simpleota).
+[`wassie-dev/simpleota`](https://components.espressif.com/components/wassie-dev/simpleota).
 
 [Managed fleet OTA for ESP32 devices in the field](https://simpleota.com/?utm_source=idf_registry&utm_medium=readme&utm_campaign=signup_v1)
 
 Starting a new project? [simpleOTA-starter-esp-idf](https://github.com/wassie-dev/simpleOTA-starter-esp-idf) is a template repo with a working ESP-IDF app and a GitHub Actions release workflow already set up.
 
 ```sh
-idf.py add-dependency "xanderwasserman/simpleota"
+idf.py add-dependency "wassie-dev/simpleota"
 ```
 
 Full documentation (features, configuration, signed firmware, rollback):

@@ -14,7 +14,9 @@
  * callback; the client does the rest from its own background task
  * (managed mode). In polling mode the application calls simpleota_check()
  * and simpleota_apply() from its own task instead, and confirms a trial with
- * simpleota_confirm().
+ * simpleota_confirm(). Each runs on a short-lived task with
+ * CONFIG_SIMPLEOTA_TASK_STACK_SIZE while the caller waits, so the caller's
+ * stack size does not matter.
  *
  * Quick start:
  * @code
@@ -230,9 +232,10 @@ typedef struct {
      *  NULL: always try. start() must then come after the IP arrives, or
      *  the first check fails and the next is check_interval_s later. */
     bool (*is_connected)(void *user_ctx);
-    /** Lifecycle events, called on the task that runs the update: the
-     *  managed task, or the app's task in polling mode. Keep it quick, and
-     *  don't call the client from it except simpleota_reboot_for_update(). */
+    /** Lifecycle events, called on the client's task that runs the update:
+     *  the managed task, or a polling call's task while the caller waits.
+     *  Keep it quick, and don't call the client from it except
+     *  simpleota_reboot_for_update(). */
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
     void *user_ctx;                /**< Passed to is_connected and event_cb. */
 
@@ -314,6 +317,7 @@ esp_err_t simpleota_check_now(void);
  * @retval ESP_ERR_INVALID_ARG    update_available is NULL.
  * @retval ESP_ERR_INVALID_STATE  Not initialized, or (with a warning) the
  *                                managed task runs.
+ * @retval ESP_ERR_NO_MEM         No memory for the task the check runs on.
  */
 esp_err_t simpleota_check(bool *update_available);
 
@@ -323,7 +327,8 @@ esp_err_t simpleota_check(bool *update_available);
  *
  * @return What happened. With auto-reboot, a successful apply restarts the
  *         device before it returns. SIMPLEOTA_NO_OFFER, with a warning,
- *         while the managed task runs.
+ *         while the managed task runs. SIMPLEOTA_FLASH_FAIL, with an error
+ *         and the offer kept, when there is no memory for its task.
  */
 simpleota_result_t simpleota_apply(void);
 

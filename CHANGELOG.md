@@ -31,6 +31,7 @@ The client is now [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTA
 
 ### Changed
 
+- `simpleota_check()` and `simpleota_apply()` run on a short-lived task with `CONFIG_SIMPLEOTA_TASK_STACK_SIZE` while the caller waits, so they work from `app_main()` and its default 3584-byte stack.
 - A rollback cut short by a power loss is finished on the next boot, instead of leaving the failed image running.
 - The trial watchdog runs without bootloader rollback too.
 - A trial that boots after a panic or watchdog reset is rolled back.

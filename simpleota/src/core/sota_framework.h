@@ -17,7 +17,7 @@
 /* The component's Kconfig defaults, for the Arduino library. Kconfig always
  * sets these on ESP-IDF; on Arduino a PlatformIO build flag can. */
 #ifndef CONFIG_SIMPLEOTA_TASK_STACK_SIZE
-#define CONFIG_SIMPLEOTA_TASK_STACK_SIZE 12288 /**< Managed, rollback and reboot task stack. */
+#define CONFIG_SIMPLEOTA_TASK_STACK_SIZE 12288 /**< Managed, polling, rollback and reboot task stack. */
 #endif
 #ifndef CONFIG_SIMPLEOTA_TASK_PRIORITY
 #define CONFIG_SIMPLEOTA_TASK_PRIORITY 5 /**< Managed task priority. */

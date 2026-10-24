@@ -94,6 +94,10 @@ if (simpleota_check(&update) == ESP_OK && update) {
 }
 ```
 
+Each call runs on a short-lived task with `CONFIG_SIMPLEOTA_TASK_STACK_SIZE`
+while your task waits, so calling from `app_main()` with its default stack
+is fine.
+
 In polling mode you confirm a trial yourself with `simpleota_confirm()` once
 the new image is healthy, whatever `manual_confirm` says. The modes don't mix:
 while the managed task runs, `simpleota_check()` returns

@@ -8,9 +8,11 @@
  * only notify it, except simpleota_confirm(), which records the confirm on
  * the caller's task, and simpleota_reboot_for_update(), which stops the
  * background task and posts its status from a short-lived task of the same
- * stack size. In polling mode simpleota_check() and simpleota_apply() run
- * on the caller's task. Without the managed task, the confirm timeout's
- * rollback runs on a short-lived task.
+ * stack size. In polling mode simpleota_check() and simpleota_apply() also
+ * run on a short-lived task of that size while the caller waits, because
+ * TLS and signature checks need more stack than a typical caller has (the
+ * ESP-IDF main task's default is 3584 bytes). Without the managed task, the
+ * confirm timeout's rollback runs on a short-lived task.
  */
 
 #include "simpleota.h"
@@ -24,6 +26,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "sota_app.h"
@@ -76,6 +79,8 @@ typedef struct {
     sota_engine_t engine;
     sota_runner_t runner;
     char *str[STR_COUNT];
+    SemaphoreHandle_t polled;   /* Given when a polling call's task is done. */
+    StaticSemaphore_t polled_buf;
     bool initialized;
     bool manual_confirm;
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
@@ -252,6 +257,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
     s.manual_confirm = config->manual_confirm;
     s.event_cb = config->event_cb;
     s.user_ctx = config->user_ctx;
+    s.polled = xSemaphoreCreateBinaryStatic(&s.polled_buf);
     s.initialized = true;
 
     sota_engine_validate_boot(&s.engine);
@@ -292,19 +298,55 @@ static bool polling_allowed(const char *caller)
     return false;
 }
 
+/* A polling call, run on its own task. */
+typedef struct {
+    bool apply;
+    bool offered;
+    sota_apply_result_t result;
+} poll_job_t;
+
+static void poll_task(void *arg)
+{
+    poll_job_t *job = (poll_job_t *)arg;
+    if (job->apply) {
+        job->result = sota_engine_apply(&s.engine);
+    } else {
+        job->offered = sota_engine_check(&s.engine);
+    }
+    xSemaphoreGive(s.polled);
+    vTaskDelete(NULL);
+}
+
+/* Run job on a task with the client's stack, at the caller's priority, and
+ * wait for it. False when there is no memory for the task. */
+static bool run_polled(poll_job_t *job)
+{
+    if (xTaskCreate(poll_task, "simpleota", CONFIG_SIMPLEOTA_TASK_STACK_SIZE, job,
+                    uxTaskPriorityGet(NULL), NULL) != pdPASS) {
+        SOTA_LOGE("no memory for the polling task");
+        return false;
+    }
+    xSemaphoreTake(s.polled, portMAX_DELAY);
+    return true;
+}
+
 esp_err_t simpleota_check(bool *update_available)
 {
     if (!update_available) return ESP_ERR_INVALID_ARG;
     *update_available = false;
     if (!polling_allowed("check")) return ESP_ERR_INVALID_STATE;
-    *update_available = sota_engine_check(&s.engine);
+    poll_job_t job = {.apply = false};
+    if (!run_polled(&job)) return ESP_ERR_NO_MEM;
+    *update_available = job.offered;
     return s.engine.last_check_ok ? ESP_OK : ESP_FAIL;
 }
 
 simpleota_result_t simpleota_apply(void)
 {
     if (!polling_allowed("apply")) return SIMPLEOTA_NO_OFFER;
-    return (simpleota_result_t)sota_engine_apply(&s.engine);
+    poll_job_t job = {.apply = true};
+    if (!run_polled(&job)) return SIMPLEOTA_FLASH_FAIL;
+    return (simpleota_result_t)job.result;
 }
 
 esp_err_t simpleota_set_server_url(const char *url)

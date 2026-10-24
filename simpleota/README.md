@@ -6,7 +6,7 @@ firmware with on-the-fly SHA-256 and Ed25519 signature verification, reports
 the full update lifecycle to the dashboard, and integrates with the ESP-IDF
 bootloader's app-rollback support so a bad build backs itself out.
 
-The sibling of [SimpleOTAClient-Arduino](https://github.com/xanderwasserman/SimpleOTAClient-Arduino),
+The sibling of [SimpleOTAClient-Arduino](https://github.com/wassie-dev/SimpleOTAClient-Arduino),
 which is the same client with the same `simpleota.h` API, so mixed fleets
 behave identically. A device keeps its
 identity (Wi-Fi MAC device id) across a migration between the two.
@@ -460,7 +460,7 @@ across IDF v5.1 through latest on Xtensa and RISC-V targets.
 
 ## Arduino and ESP-IDF
 
-The [Arduino library](https://github.com/xanderwasserman/SimpleOTAClient-Arduino)
+The [Arduino library](https://github.com/wassie-dev/SimpleOTAClient-Arduino)
 is this same client: the same `simpleota.h`, built from the same sources, so
 code that uses SimpleOTA works unchanged in a sketch. Two things differ,
 because Arduino-ESP32 has no Kconfig and no certificate bundle:
@@ -514,7 +514,7 @@ installed) instead of build 0. The server then offers it nothing until a
 higher build ships. Erase NVS when you flash it, or release the build you
 want as a new, higher one.
 
-The [CHANGELOG](https://github.com/xanderwasserman/SimpleOTAClient-ESP-IDF/blob/main/CHANGELOG.md)
+The [CHANGELOG](https://github.com/wassie-dev/SimpleOTAClient-ESP-IDF/blob/main/CHANGELOG.md)
 lists every change.
 
 ## License

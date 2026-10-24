@@ -6,6 +6,7 @@ The client is now [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTA
 
 ### Upgrading
 
+- **The repository moved to [wassie-dev/SimpleOTAClient-ESP-IDF](https://github.com/wassie-dev/SimpleOTAClient-ESP-IDF).** GitHub redirects the old URL. The component registry name stays `xanderwasserman/simpleota`, so `idf_component.yml` dependencies need no change.
 - **Devices update from 0.2.x over the air**, mid-trial too. The NVS keys and their meanings are unchanged, and a trial that fails returns to the old release, which reads the rollback as it always has. 1.0.0 adds one key, `sota_image`, which older releases ignore.
 - **Existing code compiles unchanged**, unless it uses `SIMPLEOTA_SECURITY_TOKEN` or sets `security_mode` to a string. Every 0.2.x function and config field is still there.
 - **`security_mode` is an enum**, `simpleota_security_t`; `SIMPLEOTA_SECURITY_BASIC` and `SIMPLEOTA_SECURITY_SIGNED` keep their names. **`SIMPLEOTA_SECURITY_TOKEN` is gone**. The platform never used a reported "token", and it kept such a device from matching basic and signed builds. The platform no longer stores a reported "token" and has cleared the values it kept, so devices that reported it match basic builds again.

@@ -93,7 +93,7 @@ void sota_app_event(void *user, const sota_event_t *ev)
     simpleota_t *c = (simpleota_t *)user;
 #if CONFIG_SIMPLEOTA_SOFTWARE_ROLLBACK
     if (ev->id == SOTA_EVENT_TRIAL_BOOT) {
-        ESP_LOGW(TAG, "bootloader rollback is off: this trial is supervised in software");
+        SOTA_LOGW("bootloader rollback is off: this trial is supervised in software");
     }
 #endif
     if (!c->event_cb) return;
@@ -163,13 +163,13 @@ static const char *security_mode_name(simpleota_security_t mode)
 static esp_err_t init_engine(const simpleota_config_t *config)
 {
     if ((unsigned)config->security_mode > SIMPLEOTA_SECURITY_SIGNED) {
-        ESP_LOGE(TAG, "security_mode %d is not a simpleota_security_t", (int)config->security_mode);
+        SOTA_LOGE("security_mode %d is not a simpleota_security_t", (int)config->security_mode);
         return ESP_ERR_INVALID_ARG;
     }
     sota_url_status_t url = SOTA_URL_OK;
     if (config->base_url) url = sota_validate_server_url(config->base_url);
     if (url != SOTA_URL_OK) {
-        ESP_LOGE(TAG, "base_url rejected (%s): it must be an https:// URL with a host",
+        SOTA_LOGE("base_url rejected (%s): it must be an https:// URL with a host",
                  sota_url_status_name(url));
         return ESP_ERR_INVALID_ARG;
     }
@@ -204,7 +204,7 @@ static esp_err_t init_engine(const simpleota_config_t *config)
     for (uint8_t i = 0; i < config->num_signing_keys; ++i) {
         const simpleota_signing_key_t *k = &config->signing_keys[i];
         if (!k->pem || !sota_engine_add_key(&s.engine, k->key_id, k->pem)) {
-            ESP_LOGE(TAG, "signing key %u: invalid Ed25519 public key PEM", i);
+            SOTA_LOGE("signing key %u: invalid Ed25519 public key PEM", i);
             return ESP_ERR_INVALID_ARG;
         }
     }
@@ -218,7 +218,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
     const char *ca = config->cert_pem;
     esp_err_t (*attach)(void *conf) = config->crt_bundle_attach;
     if (!ca && !attach && !sota_framework_default_trust(&ca, &attach)) {
-        ESP_LOGE(TAG, "no TLS trust anchor: enable CONFIG_MBEDTLS_CERTIFICATE_BUNDLE "
+        SOTA_LOGE("no TLS trust anchor: enable CONFIG_MBEDTLS_CERTIFICATE_BUNDLE "
                       "or set cert_pem");
         return ESP_ERR_INVALID_STATE;
     }
@@ -250,7 +250,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
     s.initialized = true;
 
     sota_engine_validate_boot(&s.engine);
-    ESP_LOGI(TAG, "init: device=%s chip=%s build=%" PRIu32 " keys=%u rollback=%d",
+    SOTA_LOGI("init: device=%s chip=%s build=%" PRIu32 " keys=%u rollback=%d",
              s.str[STR_DEVICE_ID], s.str[STR_CHIP_FAMILY], s.engine.st.live.build,
              s.engine.num_keys, SOTA_ROLLBACK);
     return ESP_OK;
@@ -270,7 +270,7 @@ esp_err_t simpleota_start(void)
 esp_err_t simpleota_stop(void)
 {
     if (!sota_runner_stop(&s.runner, 60000)) {
-        ESP_LOGW(TAG, "stop: task did not exit within 60 s");
+        SOTA_LOGW("stop: task did not exit within 60 s");
         return ESP_ERR_TIMEOUT;
     }
     s.engine.cfg.auto_confirm = false;
@@ -283,7 +283,7 @@ static bool polling_allowed(const char *caller)
 {
     if (!s.initialized) return false;
     if (!s.runner.task) return true;
-    ESP_LOGW(TAG, "%s: the managed task is running; call simpleota_stop() first", caller);
+    SOTA_LOGW("%s: the managed task is running; call simpleota_stop() first", caller);
     return false;
 }
 
@@ -307,7 +307,7 @@ esp_err_t simpleota_set_server_url(const char *url)
     if (!s.initialized || s.runner.task) return ESP_ERR_INVALID_STATE;
     const sota_url_status_t status = sota_validate_server_url(url);
     if (status != SOTA_URL_OK) {
-        ESP_LOGW(TAG, "set_server_url rejected (%s); keeping %s", sota_url_status_name(status),
+        SOTA_LOGW("set_server_url rejected (%s); keeping %s", sota_url_status_name(status),
                  s.engine.cfg.server_url);
         return ESP_ERR_INVALID_ARG;
     }
@@ -355,7 +355,7 @@ esp_err_t simpleota_reboot_for_update(void)
     simpleota_stop();
     if (xTaskCreate(reboot_task, "sota_reboot", CONFIG_SIMPLEOTA_TASK_STACK_SIZE, NULL,
                     CONFIG_SIMPLEOTA_TASK_PRIORITY, NULL) != pdPASS) {
-        ESP_LOGW(TAG, "no memory for the reboot task; restarting without the status post");
+        SOTA_LOGW("no memory for the reboot task; restarting without the status post");
         esp_restart();
     }
     for (;;) vTaskDelay(portMAX_DELAY);

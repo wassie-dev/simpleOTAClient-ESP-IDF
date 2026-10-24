@@ -4,10 +4,11 @@
  * check-ins, applying an update, the trial and its confirm or rollback,
  * and the deferred reports.
  *
- * The adapter owns a sota_engine_t and calls these functions. A device runs
- * one engine at a time (sota_engine_init()). The engine reaches the platform only
- * through the link-time interfaces: sota_kv.h, sota_image.h, sota_boot.h
- * and sota_sys.h from the port, sota_net.h and sota_app.h from the adapter.
+ * The public API layer (port/esp32/simpleota.c) owns a sota_engine_t and
+ * calls these functions. A device runs one engine at a time
+ * (sota_engine_init()). The engine reaches the platform only through the
+ * link-time interfaces sota_kv.h, sota_image.h, sota_boot.h, sota_sys.h,
+ * sota_net.h and sota_app.h, which the port implements.
  *
  * Polling use: sota_engine_check(), then sota_engine_apply() when it
  * offers an update. A managed task calls sota_engine_step() and waits the
@@ -65,15 +66,15 @@ typedef struct {
                                      did not install it (a USB flash). 0: unknown. */
     uint32_t check_interval_s;  /**< 0: the default. */
     uint32_t confirm_timeout_s; /**< 0: the default. Clamped to [10, 86400]. */
-    uint32_t http_timeout_ms;   /**< The adapter's; sizes the watchdog margin. */
+    uint32_t http_timeout_ms;   /**< The transport's; sizes the watchdog margin. */
     bool auto_confirm;          /**< A trial is confirmed by its first successful check-in. */
     bool auto_reboot;           /**< apply() restarts after a successful flash. */
     bool rollback;              /**< Run new images as trials. */
     void *user;                 /**< Passed to sota_net.h and sota_app.h. */
 } sota_config_t;
 
-/** One engine's state. Members are for the core and its tests; adapters
- *  use the functions below. */
+/** One engine's state. Members are for the core, its API layer and its
+ *  tests; nothing else should touch them. */
 typedef struct sota_engine {
     sota_config_t cfg;          /**< As given to sota_engine_init(). */
     uint8_t keys[SOTA_VERIFIER_MAX_KEYS][32];  /**< Pinned Ed25519 keys. */
@@ -104,10 +105,6 @@ typedef struct sota_engine {
  *  sota_engine_deinit(). */
 bool sota_engine_init(sota_engine_t *e, const sota_config_t *cfg);
 
-/** Set cfg.confirm_timeout_s, clamped to [10, 86400]. Before the trial's
- *  timer starts, at the boot's first validate_boot(). */
-void sota_engine_set_confirm_timeout(sota_engine_t *e, uint32_t seconds);
-
 /** Pin an Ed25519 public key (PEM). key_id may be NULL. False when the
  *  PEM does not parse or two keys are pinned already. */
 bool sota_engine_add_key(sota_engine_t *e, const char *key_id, const char *pem);
@@ -132,7 +129,7 @@ sota_confirm_result_t sota_engine_confirm(sota_engine_t *e);
 void sota_engine_timeout_fired(sota_engine_t *e);
 
 /** Roll back when the confirm timeout has fired. Call from a task that
- *  may block: the managed task, or the adapter after sota_app_wake(). */
+ *  may block: the managed task, or the API layer after sota_app_wake(). */
 void sota_engine_service(sota_engine_t *e);
 
 /** One pass of a managed task: service, then check and apply when

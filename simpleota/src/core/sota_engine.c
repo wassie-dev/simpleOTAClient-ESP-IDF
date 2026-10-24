@@ -53,13 +53,6 @@ static bool running(const sota_engine_t *e)
     return e == s_owner;
 }
 
-/* Below 10 s leaves no time to debug a trial on a serial console; above
- * 24 h is a bug, not a configuration. */
-void sota_engine_set_confirm_timeout(sota_engine_t *e, uint32_t seconds)
-{
-    e->cfg.confirm_timeout_s = clamp(seconds, 10u, 86400u);
-}
-
 bool sota_engine_init(sota_engine_t *e, const sota_config_t *cfg)
 {
     memset(e, 0, sizeof(*e));
@@ -72,8 +65,10 @@ bool sota_engine_init(sota_engine_t *e, const sota_config_t *cfg)
     if (!e->cfg.server_url) e->cfg.server_url = SOTA_DEFAULT_SERVER_URL;
     if (!e->cfg.check_interval_s) e->cfg.check_interval_s = SOTA_DEFAULT_CHECK_INTERVAL_S;
     if (!e->cfg.confirm_timeout_s) e->cfg.confirm_timeout_s = SOTA_DEFAULT_CONFIRM_TIMEOUT_S;
+    /* Below 10 s leaves no time to debug a trial on a serial console; above
+     * 24 h is a bug, not a configuration. */
+    e->cfg.confirm_timeout_s = clamp(e->cfg.confirm_timeout_s, 10u, 86400u);
     if (!e->cfg.http_timeout_ms) e->cfg.http_timeout_ms = SOTA_DEFAULT_HTTP_TIMEOUT_MS;
-    sota_engine_set_confirm_timeout(e, e->cfg.confirm_timeout_s);
     if (!token_ok(e->cfg.token) || sota_validate_server_url(e->cfg.server_url) != SOTA_URL_OK) {
         return false;
     }

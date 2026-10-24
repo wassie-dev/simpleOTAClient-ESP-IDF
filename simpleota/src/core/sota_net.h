@@ -1,10 +1,10 @@
 /**
  * @file
- * @brief HTTP, implemented by each client's adapter (HTTPClient on
- * Arduino, esp_http_client on ESP-IDF) and by the host tests' fake.
+ * @brief HTTP, implemented by the platform port (esp_http_client on ESP32,
+ * for both clients) and by the host tests' fake.
  *
- * user is the sota_config_t's user pointer, so an adapter can keep its TLS
- * settings per engine. TLS trust is entirely the adapter's.
+ * user is the sota_config_t's user pointer, where the port keeps its TLS
+ * settings. TLS trust is entirely the port's.
  */
 
 #ifndef SOTA_NET_H

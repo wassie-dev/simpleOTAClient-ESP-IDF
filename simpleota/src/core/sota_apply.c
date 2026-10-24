@@ -15,9 +15,15 @@
 #include "sota_sys.h"
 #include "sota_url.h"
 
-/** Download buffer, on the heap while an update is applied. */
+/* Download buffer, on the heap while an update is applied. The ESP-IDF
+ * component sets SOTA_DL_CHUNK from Kconfig; an Arduino build can pass
+ * -DCONFIG_SIMPLEOTA_DOWNLOAD_CHUNK, the same option's name. */
 #ifndef SOTA_DL_CHUNK
+#ifdef CONFIG_SIMPLEOTA_DOWNLOAD_CHUNK
+#define SOTA_DL_CHUNK ((unsigned)CONFIG_SIMPLEOTA_DOWNLOAD_CHUNK)
+#else
 #define SOTA_DL_CHUNK 4096u
+#endif
 #endif
 
 /* Progress events at whole-percent steps, or every 64 KB when the size is

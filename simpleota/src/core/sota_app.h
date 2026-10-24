@@ -1,8 +1,8 @@
 /**
  * @file
  * @brief What the engine tells the application: events, log lines,
- * and a wake-up when the confirm timeout fires. Implemented by each
- * client's adapter and by the host tests' fake.
+ * and a wake-up when the confirm timeout fires. Implemented by the public
+ * API layer (port/esp32/simpleota.c) and by the host tests' fake.
  */
 
 #ifndef SOTA_APP_H
@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-/** In the order of simpleota_event_id_t, so the ESP-IDF adapter can pass
+/** In the order of simpleota_event_id_t, so the API layer can pass
  *  them through. */
 typedef enum {
     SOTA_EVENT_CHECK_DONE,        /**< A check completed; no update offered. */
@@ -58,8 +58,9 @@ void sota_app_log(int level, const char *fmt, ...)
     ;
 
 #ifndef SOTA_LOG_LEVEL
-/** The most detailed level compiled in; lines above it are left out. */
-#define SOTA_LOG_LEVEL SOTA_LOG_INFO
+/** The most detailed level compiled in; lines above it are left out. The
+ *  ESP-IDF component sets it to CONFIG_LOG_MAXIMUM_LEVEL. */
+#define SOTA_LOG_LEVEL SOTA_LOG_DEBUG
 #endif
 
 /** Log at level when SOTA_LOG_LEVEL includes it. */

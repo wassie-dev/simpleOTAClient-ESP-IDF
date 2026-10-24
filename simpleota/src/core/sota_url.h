@@ -101,15 +101,6 @@ static inline sota_url_status_t sota_redirect_target(const char *base, const cha
     return SOTA_URL_OK;
 }
 
-/** candidate when it is valid, else current. *status gets the verdict. */
-static inline const char *sota_select_server_url(const char *current, const char *candidate,
-                                                 sota_url_status_t *status)
-{
-    sota_url_status_t st = sota_validate_server_url(candidate);
-    if (status) *status = st;
-    return st == SOTA_URL_OK ? candidate : current;
-}
-
 /**
  * base + path into out, with trailing slashes of base removed. Returns
  * false, leaving out untouched, when it does not fit.

@@ -1,7 +1,7 @@
 /**
  * @file
- * @brief What sota_engine.c and sota_apply.c share. Not for
- * adapters.
+ * @brief What sota_engine.c and sota_apply.c share. Not for the
+ * API layer.
  */
 
 #ifndef SOTA_ENGINE_PRIV_H

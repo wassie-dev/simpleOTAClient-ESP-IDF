@@ -18,7 +18,8 @@ The client is now [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTA
 
 ### Added
 
-- Polling mode: `simpleota_check()` and `simpleota_apply()`, with `simpleota_result_t`, for apps that run the checks from their own task, as the Arduino client can. [examples/polling](examples/polling) shows it.
+- Polling mode: `simpleota_check(&update)` and `simpleota_apply()`, for apps that run the checks from their own task. `simpleota_check()` returns `ESP_FAIL` when the server did not answer, so a failed check is not mistaken for no update. [examples/polling](examples/polling) shows it.
+- `SIMPLEOTA_API_VERSION`, to test at compile time for something added in a later 1.x release. `simpleota.h` states what every 1.x release keeps: a config field left at zero gets its default, nothing is changed or removed, and the `reason` tokens it lists stay.
 - `simpleota_set_server_url()` and `simpleota_last_offered_version()`, as on Arduino.
 - Anti-rollback: an offer whose build number is not above the running build is refused (`downgrade_refused`; `SIMPLEOTA_DOWNGRADE` in polling mode). An old image's signature still verifies, so this stops an old, vulnerable build being pushed.
 - `image_build`: the build an image reports when it was flashed some other way than SimpleOTA, such as over USB. The running image's ELF SHA-256 is stored as `sota_image` to tell those images apart, so a device reused for another project no longer reports, and refuses offers below, the old project's build.

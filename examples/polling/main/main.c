@@ -32,7 +32,13 @@ static bool app_healthy(void) {
 }
 
 static void check_for_update(void) {
-    if (!simpleota_check()) return; /* no update, or the check failed */
+    bool update = false;
+    esp_err_t err = simpleota_check(&update);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "check failed (%s); trying again later", esp_err_to_name(err));
+        return;
+    }
+    if (!update) return;
 
     ESP_LOGI(TAG, "update offered: %s", simpleota_last_offered_version());
     simpleota_result_t r = simpleota_apply(); /* restarts on success */

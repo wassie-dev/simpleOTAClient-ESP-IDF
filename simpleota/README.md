@@ -87,7 +87,8 @@ bring-up, [examples/polling](../examples/polling) for polling mode, and
 To run the checks from your own task instead, skip `simpleota_start()`:
 
 ```c
-if (simpleota_check()) {
+bool update = false;
+if (simpleota_check(&update) == ESP_OK && update) {
     simpleota_result_t r = simpleota_apply();   // reboots on success
     if (r != SIMPLEOTA_OK) ESP_LOGW("app", "update failed: %d", r);
 }
@@ -95,8 +96,8 @@ if (simpleota_check()) {
 
 In polling mode you confirm a trial yourself with `simpleota_confirm()` once
 the new image is healthy, whatever `manual_confirm` says. The modes don't mix:
-while the managed task runs, `simpleota_check()` returns false and
-`simpleota_apply()` returns `SIMPLEOTA_NO_OFFER`, with a warning.
+while the managed task runs, `simpleota_check()` returns
+`ESP_ERR_INVALID_STATE` and `simpleota_apply()` returns `SIMPLEOTA_NO_OFFER`, with a warning.
 [examples/polling](../examples/polling) is a complete project.
 
 `simpleota_set_server_url()` moves check-ins to another `https://` server

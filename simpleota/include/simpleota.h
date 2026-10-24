@@ -44,6 +44,16 @@
  * Logs use the tag "simpleota". Warnings and errors show by default;
  * esp_log_level_set("simpleota", ESP_LOG_DEBUG) after simpleota_init()
  * shows every step.
+ *
+ * Compatibility, which every later 1.x release keeps:
+ * - A configuration field left at zero (or NULL, or false) gets its default.
+ *   New fields follow the same rule, so a config filled from `{0}` keeps
+ *   building and keeps its behaviour.
+ * - Functions, fields, result values and event ids are only added, never
+ *   changed or removed; check SIMPLEOTA_API_VERSION before using a newer
+ *   one.
+ * - The `reason` tokens listed at simpleota_event_t are stable. New tokens
+ *   may be added, so treat an unknown one as a generic failure.
  */
 
 #ifndef SIMPLEOTA_H
@@ -60,6 +70,27 @@ extern "C" {
 #endif
 
 /**
+ * @name API version
+ * The version of this API, not of either package: the minor version grows
+ * when something is added, the major one only for a breaking change. Both
+ * the Arduino library and the ESP-IDF component ship this header unchanged.
+ * @code
+ * #if SIMPLEOTA_API_VERSION >= SIMPLEOTA_API_VERSION_NUM(1, 1)
+ * // use something added in 1.1
+ * #endif
+ * @endcode
+ * @{
+ */
+#define SIMPLEOTA_API_VERSION_MAJOR 1 /**< Breaking changes. */
+#define SIMPLEOTA_API_VERSION_MINOR 0 /**< Additions. */
+/** A version as one comparable number. */
+#define SIMPLEOTA_API_VERSION_NUM(major, minor) ((major) * 1000 + (minor))
+/** This header's version, as SIMPLEOTA_API_VERSION_NUM() gives it. */
+#define SIMPLEOTA_API_VERSION \
+    SIMPLEOTA_API_VERSION_NUM(SIMPLEOTA_API_VERSION_MAJOR, SIMPLEOTA_API_VERSION_MINOR)
+/** @} */
+
+/**
  * @name Security modes
  * Values for simpleota_config_t::security_mode, as the SimpleOTA platform
  * names them. The server offers a device only artifacts of the same mode,
@@ -67,7 +98,9 @@ extern "C" {
  * @{
  */
 #define SIMPLEOTA_SECURITY_BASIC "basic"   /**< Unsigned artifacts, verified by checksum. */
-#define SIMPLEOTA_SECURITY_TOKEN "token"   /**< The platform's "token" mode. */
+#define SIMPLEOTA_SECURITY_TOKEN "token"   /**< Per-device token authentication, which the
+                                              platform supports in part; the client
+                                              only reports it. */
 #define SIMPLEOTA_SECURITY_SIGNED "signed" /**< Ed25519-signed firmware only; needs a pinned key. */
 /** @} */
 
@@ -105,7 +138,33 @@ typedef enum {
                                             starts next. reason says why. */
 } simpleota_event_id_t;
 
-/** One lifecycle event, valid only during the event_cb call. */
+/**
+ * One lifecycle event, valid only during the event_cb call.
+ *
+ * `reason` for SIMPLEOTA_EVENT_UPDATE_FAILED, which the dashboard shows too:
+ * - `downgrade_refused`: the offered build is not above the running one.
+ * - `insecure_url`: the download URL is not https://.
+ * - `signature_invalid`: a required signature is missing or wrong.
+ * - `https_begin_failed`: the download connection could not be opened.
+ * - `http_status_<N>`: the download returned HTTP N, or a fourth redirect.
+ * - `redirect_not_https`, `redirect_malformed`: a download redirect led to
+ *   plain HTTP, or had no usable Location.
+ * - `update_begin_failed`: no second OTA slot, or the image is too big.
+ * - `update_write_failed`: a flash write failed.
+ * - `stream_error`, `download_stalled`, `short_read`: the download broke,
+ *   received nothing for CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS, or ended early.
+ * - `checksum_mismatch`: the download did not match its SHA-256.
+ * - `update_end_failed`: the image failed ESP-IDF's check, or the boot slot
+ *   could not be switched.
+ * - `state_save_failed`: the trial record could not be saved.
+ *
+ * `reason` for SIMPLEOTA_EVENT_ROLLING_BACK: `confirm_timeout`, or the reset
+ * that ended the trial: `panic`, `int_wdt`, `task_wdt`, `watchdog`,
+ * `brownout`, `power_on`, `deep_sleep` or `reset`.
+ *
+ * For SIMPLEOTA_EVENT_CHECK_DONE it is the server's status, such as
+ * `up_to_date`, which the platform defines.
+ */
 typedef struct {
     simpleota_event_id_t id; /**< What happened. */
     const char *reason;   /**< A reason token (e.g. "checksum_mismatch"), the
@@ -236,12 +295,22 @@ esp_err_t simpleota_check_now(void);
 /**
  * Polling mode: check in, and keep any offer for simpleota_apply(). Sends
  * queued reports first, except during a trial.
+ * @code
+ * bool update = false;
+ * if (simpleota_check(&update) == ESP_OK && update) simpleota_apply();
+ * @endcode
  *
- * @return true when an update is offered; false when none is, on a failed
- *         check, before init, and (with a warning) while the managed task
- *         runs.
+ * @param[out] update_available  Set to true when an update is offered, and
+ *                               to false otherwise, whatever is returned.
+ * @retval ESP_OK                 The server answered. An offer it sent that
+ *                                cannot be used logs a warning and counts as
+ *                                no update.
+ * @retval ESP_FAIL               No response, or not a 2xx: try again later.
+ * @retval ESP_ERR_INVALID_ARG    update_available is NULL.
+ * @retval ESP_ERR_INVALID_STATE  Not initialized, or (with a warning) the
+ *                                managed task runs.
  */
-bool simpleota_check(void);
+esp_err_t simpleota_check(bool *update_available);
 
 /**
  * Polling mode: download, verify and flash the offer from the last

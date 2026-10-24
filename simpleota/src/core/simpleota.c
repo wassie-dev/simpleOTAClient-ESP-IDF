@@ -275,9 +275,13 @@ static bool polling_allowed(const char *caller)
     return false;
 }
 
-bool simpleota_check(void)
+esp_err_t simpleota_check(bool *update_available)
 {
-    return polling_allowed("check") && sota_engine_check(&s.engine);
+    if (!update_available) return ESP_ERR_INVALID_ARG;
+    *update_available = false;
+    if (!polling_allowed("check")) return ESP_ERR_INVALID_STATE;
+    *update_available = sota_engine_check(&s.engine);
+    return s.engine.last_check_ok ? ESP_OK : ESP_FAIL;
 }
 
 simpleota_result_t simpleota_apply(void)

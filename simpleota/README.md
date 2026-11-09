@@ -179,7 +179,15 @@ again, first after 10 s (three times), then at the normal check interval.
 
 Check-ins and status posts retry once after 2 s when no response arrives
 (not during a trial), and never retry a response that arrived. The download
-does not retry; the next check can try again.
+does not retry in place; a later check tries again.
+
+In managed mode, a check-in that got no answer (or a 5xx, 408 or 429) and a
+download that broke are tried again after 30 s, 2 min and 10 min, then at
+`check_interval_s`. A download the server refuses, a bad checksum or
+signature, and a flash failure wait for the next regular check. Every wait
+of a minute or more is spread by up to a tenth either way, so devices that
+power up together do not check in together from then on. In polling mode the
+application schedules its own calls.
 
 ## Rollback
 
@@ -372,6 +380,11 @@ simpleota_config_t cfg = {
 };
 ```
 
+**Set both.** Keys only bind together with `SIMPLEOTA_SECURITY_SIGNED`. With
+keys pinned and any other mode, an update the server marks unsigned is still
+installed on its checksum alone, and `simpleota_init()` logs a warning saying
+so.
+
 Behavior matrix (the same in the Arduino library):
 
 | Device state | Offer | Result |
@@ -411,6 +424,21 @@ prefer. Everything is HTTPS: a `base_url` that is not `https://` fails
 `simpleota_init()`, a plain HTTP download URL is refused (`insecure_url`),
 and a download follows up to three redirects, each only to another
 `https://` URL (`redirect_not_https` otherwise).
+
+Two things the component cannot do for you:
+
+- **Certificate expiry needs a clock and an option.** ESP-IDF leaves
+  `CONFIG_MBEDTLS_HAVE_TIME_DATE` off by default, and then mbedTLS does not
+  look at a certificate's dates, so an expired one is accepted. If you turn
+  it on, set the time (for example over SNTP) before the first check: with
+  the clock at 1970 every certificate is "not yet valid" and no check
+  succeeds. Revocation is never checked. The chain and the hostname always
+  are.
+- **The token is stored in the firmware.** A project or device token is a
+  plain string in the app image, so anyone who can read the flash can read
+  it. For a production fleet, use per-device tokens where you can, and
+  consider
+  [Flash Encryption](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/security/flash-encryption.html).
 
 ### Task watchdog warnings during the handshake
 

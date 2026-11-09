@@ -107,6 +107,8 @@ static const char *download(sota_engine_t *e, job_t *job, size_t expected,
             return stalled ? "download_stalled" : "stream_error";
         }
         last_byte_ms = sota_sys_now_ms();
+        /* More than was announced can never match: stop before the write. */
+        if (expected && (size_t)r > expected - total) return "short_read";
         if (!sota_image_write(job->chunk, (size_t)r)) return "update_write_failed";
         sota_sha256_update(sha, job->chunk, (size_t)r);
         if (job->verifier) sota_verifier_update(job->verifier, job->chunk, (size_t)r);
@@ -243,6 +245,7 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
     int http = open_download(e, &len, &refused);
     if (refused) return give_up(e, &job, refused, SOTA_APPLY_FLASH_FAIL);
     if (http != 200) {
+        e->net_failed = sota_http_transient(http);
         char reason[24];
         if (http == 0) {
             strcpy(reason, "https_begin_failed");
@@ -266,7 +269,11 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
     const char *failed = download(e, &job, expected, &sha);
     sota_net_dl_close(e->cfg.user);
     job.downloading = false;
-    if (failed) return give_up(e, &job, failed, SOTA_APPLY_FLASH_FAIL);
+    if (failed) {
+        /* Everything but the flash write is the network's doing. */
+        e->net_failed = strcmp(failed, "update_write_failed") != 0;
+        return give_up(e, &job, failed, SOTA_APPLY_FLASH_FAIL);
+    }
     sota_engine_post_status(e, "downloaded", NULL, e->offer.deployment, e->offer.build);
 
     /* The checksum first, which tells a broken transfer apart; then the

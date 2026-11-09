@@ -219,6 +219,12 @@ static esp_err_t init_engine(const simpleota_config_t *config)
             return ESP_ERR_INVALID_ARG;
         }
     }
+    /* The keys only bind in SIGNED mode: in any other, the server's word
+     * that an artifact is unsigned is taken (sota_signed_gate()). */
+    if (config->num_signing_keys && config->security_mode != SIMPLEOTA_SECURITY_SIGNED) {
+        SOTA_LOGW("signing keys are pinned but security_mode is not SIGNED: "
+                  "unsigned updates are still accepted");
+    }
     return ESP_OK;
 }
 

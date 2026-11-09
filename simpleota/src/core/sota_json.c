@@ -77,6 +77,40 @@ bool sota_json_has_key(const char *json, const char *key) {
     return json_find_value(json, key, &p);
 }
 
+static int hex_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* The code point of the four hex digits at s, as UTF-8 into out (3 bytes at
+ * most). Returns the byte count, or 0 for bad digits, U+0000, which would
+ * end the string early, and surrogates, which no field here needs. */
+static size_t decode_u(const char *s, size_t left, char out[3]) {
+    if (left < 4) return 0;
+    unsigned cp = 0;
+    for (int i = 0; i < 4; ++i) {
+        int v = hex_value(s[i]);
+        if (v < 0) return 0;
+        cp = (cp << 4) | (unsigned)v;
+    }
+    if (cp == 0 || (cp >= 0xd800u && cp <= 0xdfffu)) return 0;
+    if (cp < 0x80u) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800u) {
+        out[0] = (char)(0xc0u | (cp >> 6));
+        out[1] = (char)(0x80u | (cp & 0x3fu));
+        return 2;
+    }
+    out[0] = (char)(0xe0u | (cp >> 12));
+    out[1] = (char)(0x80u | ((cp >> 6) & 0x3fu));
+    out[2] = (char)(0x80u | (cp & 0x3fu));
+    return 3;
+}
+
 bool sota_json_get_string(const char *json, const char *key, char *out,
                           size_t out_cap) {
     if (!json || !out || out_cap == 0) return false;
@@ -87,22 +121,31 @@ bool sota_json_get_string(const char *json, const char *key, char *out,
     ++p;
     size_t w = 0;
     while (p < n && json[p] != '"') {
-        char c = json[p];
-        char decoded;
-        if (c == '\\' && p + 1 < n) {
+        char decoded[3] = {json[p], 0, 0};
+        size_t len = 1;
+        if (json[p] == '\\') {
+            if (p + 1 >= n) return false;
             char esc = json[p + 1];
-            if (esc == 'n') decoded = '\n';
-            else if (esc == 't') decoded = '\t';
-            else if (esc == 'r') decoded = '\r';
-            else decoded = esc;
             p += 2;
+            if (esc == 'u') {
+                len = decode_u(json + p, n - p, decoded);
+                if (len == 0) return false;
+                p += 4;
+            } else if (esc == 'n') decoded[0] = '\n';
+            else if (esc == 't') decoded[0] = '\t';
+            else if (esc == 'r') decoded[0] = '\r';
+            else if (esc == 'b') decoded[0] = '\b';
+            else if (esc == 'f') decoded[0] = '\f';
+            else decoded[0] = esc;
         } else {
-            decoded = c;
             ++p;
         }
-        if (w + 1 >= out_cap) return false; /* would truncate: fail loudly */
-        out[w++] = decoded;
+        if (w + len >= out_cap) return false; /* would truncate: fail loudly */
+        memcpy(out + w, decoded, len);
+        w += len;
     }
+    /* A response cut off inside the value: half a URL is not a URL. */
+    if (p >= n) return false;
     out[w] = '\0';
     return true;
 }

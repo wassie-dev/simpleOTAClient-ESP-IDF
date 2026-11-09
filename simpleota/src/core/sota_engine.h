@@ -84,6 +84,8 @@ typedef struct sota_engine {
     sota_state_t st;            /**< As stored, kept current. */
     sota_outbox_t outbox;       /**< Guarded by sota_sys_lock(). */
     uint32_t report_failures;   /**< Report sends with no response this boot. */
+    uint8_t net_failures;       /**< Managed steps in a row that failed on the network. */
+    bool net_failed;            /**< The step under way has: no answer, or a broken download. */
 
     sota_offer_t offer;         /**< offer.url is heap, NULL without an offer. */
     bool has_offer;             /**< offer holds an update from the last check. */

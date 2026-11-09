@@ -152,7 +152,8 @@ typedef enum {
  * - `update_begin_failed`: no second OTA slot, or the image is too big.
  * - `update_write_failed`: a flash write failed.
  * - `stream_error`, `download_stalled`, `short_read`: the download broke,
- *   received nothing for CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS, or ended early.
+ *   received nothing for CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS, or was not the
+ *   announced size.
  * - `checksum_mismatch`: the download did not match its SHA-256.
  * - `update_end_failed`: the image failed ESP-IDF's check, or the boot slot
  *   could not be switched.
@@ -210,7 +211,12 @@ typedef struct {
                                         Set it only in the exact image you upload,
                                         to the build SimpleOTA gives it. */
     uint8_t nvs_schema_version;    /**< The data schema this firmware expects. Default: 1. */
-    uint32_t check_interval_s;     /**< Seconds between checks. Default: 3600. */
+    uint32_t check_interval_s;     /**< Seconds between checks. Default: 3600. The
+                                        managed task spreads each wait of a minute
+                                        or more by up to a tenth either way, so a
+                                        fleet does not check in at once, and
+                                        retries a check or download that failed on
+                                        the network after 30 s, 2 min and 10 min. */
     uint32_t initial_delay_ms;     /**< Delay before the first check after start().
                                         Default: none. Not a wait for the IP; see
                                         is_connected. */
@@ -223,7 +229,10 @@ typedef struct {
     bool disable_auto_reboot;      /**< true: the app calls simpleota_reboot_for_update(). */
 
     /** Pinned public keys for signed firmware, at most 2. Parsed at init,
-     *  which fails on a PEM that does not parse rather than run unpinned. */
+     *  which fails on a PEM that does not parse rather than run unpinned.
+     *  They bind only with security_mode SIMPLEOTA_SECURITY_SIGNED: in any
+     *  other mode an update the server marks unsigned is still accepted on
+     *  its checksum, and init logs a warning. */
     const simpleota_signing_key_t *signing_keys;
     uint8_t num_signing_keys;      /**< Entries in signing_keys. */
 

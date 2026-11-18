@@ -2,7 +2,7 @@
 
 ## 1.0.1
 
-Fixes from a security and robustness review, by moving to [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) 1.0.1 (tag `v1.0.1`, commit `5841c1c`). No API change, no Kconfig change, and nothing stored in NVS changes. TLS trust is unchanged: without `cert_pem` the component verifies against the ESP-IDF certificate bundle, as in 1.0.0. Core 1.0.1's new default trust is for the Arduino library only and is not built here.
+Fixes from a security and robustness review, by moving to [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) 1.0.1 (tag `v1.0.1`, commit `5841c1c`). No API change, no Kconfig option changes, and nothing stored in NVS changes. TLS trust is unchanged: without `cert_pem` the component verifies against the ESP-IDF certificate bundle, as in 1.0.0. Core 1.0.1's new default trust is for the Arduino library only and is not built here.
 
 ### Changed
 

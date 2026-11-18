@@ -84,18 +84,36 @@ static int hex_value(char c) {
     return -1;
 }
 
-/* The code point of the four hex digits at s, as UTF-8 into out (3 bytes at
- * most). Returns the byte count, or 0 for bad digits, U+0000, which would
- * end the string early, and surrogates, which no field here needs. */
-static size_t decode_u(const char *s, size_t left, char out[3]) {
-    if (left < 4) return 0;
-    unsigned cp = 0;
+/* The four hex digits at s as a number, or -1 for fewer or bad ones. */
+static long hex4(const char *s, size_t left) {
+    if (left < 4) return -1;
+    long v = 0;
     for (int i = 0; i < 4; ++i) {
-        int v = hex_value(s[i]);
-        if (v < 0) return 0;
-        cp = (cp << 4) | (unsigned)v;
+        int d = hex_value(s[i]);
+        if (d < 0) return -1;
+        v = (v << 4) | d;
     }
-    if (cp == 0 || (cp >= 0xd800u && cp <= 0xdfffu)) return 0;
+    return v;
+}
+
+/* The escape at s, just past its "\u", as UTF-8 into out (4 bytes at most).
+ * A high surrogate takes the "\uXXXX" low one after it: servers that escape
+ * all non-ASCII send an emoji in a version label that way. Returns the byte
+ * count and sets *used to the input read, or returns 0 for bad digits,
+ * U+0000, which would end the string early, and a surrogate that is not the
+ * first half of a pair in order. */
+static size_t decode_u(const char *s, size_t left, char out[4], size_t *used) {
+    long hi = hex4(s, left);
+    if (hi <= 0 || (hi >= 0xdc00 && hi <= 0xdfff)) return 0;
+    unsigned long cp = (unsigned long)hi;
+    *used = 4;
+    if (hi >= 0xd800 && hi <= 0xdbff) {
+        if (left < 6 || s[4] != '\\' || s[5] != 'u') return 0;
+        long lo = hex4(s + 6, left - 6);
+        if (lo < 0xdc00 || lo > 0xdfff) return 0;
+        cp = 0x10000ul + (((unsigned long)hi - 0xd800ul) << 10) + ((unsigned long)lo - 0xdc00ul);
+        *used = 10;
+    }
     if (cp < 0x80u) {
         out[0] = (char)cp;
         return 1;
@@ -105,10 +123,17 @@ static size_t decode_u(const char *s, size_t left, char out[3]) {
         out[1] = (char)(0x80u | (cp & 0x3fu));
         return 2;
     }
-    out[0] = (char)(0xe0u | (cp >> 12));
-    out[1] = (char)(0x80u | ((cp >> 6) & 0x3fu));
-    out[2] = (char)(0x80u | (cp & 0x3fu));
-    return 3;
+    if (cp < 0x10000ul) {
+        out[0] = (char)(0xe0u | (cp >> 12));
+        out[1] = (char)(0x80u | ((cp >> 6) & 0x3fu));
+        out[2] = (char)(0x80u | (cp & 0x3fu));
+        return 3;
+    }
+    out[0] = (char)(0xf0u | (cp >> 18));
+    out[1] = (char)(0x80u | ((cp >> 12) & 0x3fu));
+    out[2] = (char)(0x80u | ((cp >> 6) & 0x3fu));
+    out[3] = (char)(0x80u | (cp & 0x3fu));
+    return 4;
 }
 
 bool sota_json_get_string(const char *json, const char *key, char *out,
@@ -121,16 +146,17 @@ bool sota_json_get_string(const char *json, const char *key, char *out,
     ++p;
     size_t w = 0;
     while (p < n && json[p] != '"') {
-        char decoded[3] = {json[p], 0, 0};
+        char decoded[4] = {json[p], 0, 0, 0};
         size_t len = 1;
         if (json[p] == '\\') {
             if (p + 1 >= n) return false;
             char esc = json[p + 1];
             p += 2;
             if (esc == 'u') {
-                len = decode_u(json + p, n - p, decoded);
+                size_t used = 0;
+                len = decode_u(json + p, n - p, decoded, &used);
                 if (len == 0) return false;
-                p += 4;
+                p += used;
             } else if (esc == 'n') decoded[0] = '\n';
             else if (esc == 't') decoded[0] = '\t';
             else if (esc == 'r') decoded[0] = '\r';

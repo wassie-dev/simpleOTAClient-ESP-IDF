@@ -27,13 +27,14 @@ extern "C" {
 
 /**
  * Extract a string value. Decodes `\n`, `\t`, `\r`, `\b`, `\f` and
- * `\uXXXX` (as UTF-8); any other backslash escape yields the character
- * after it.
+ * `\uXXXX` (as UTF-8, a surrogate pair as one character); any other
+ * backslash escape yields the character after it.
  * @return true only when the key exists, is a string with its closing
  *         quote, AND the decoded value fits in out_cap-1 bytes. An oversized
  *         value, one cut off by the end of the text, and a `\uXXXX` that is
- *         malformed, U+0000 or a surrogate all fail loudly rather than
- *         yield part of a value, so a clipped URL can never half-work.
+ *         malformed, U+0000 or a surrogate outside a pair all fail loudly
+ *         rather than yield part of a value, so a clipped URL can never
+ *         half-work.
  */
 bool sota_json_get_string(const char *json, const char *key, char *out,
                           size_t out_cap);

@@ -164,8 +164,8 @@ inline on the device row, and that `SIMPLEOTA_EVENT_UPDATE_FAILED` carries:
 | `update_begin_failed` | The update slot could not be opened: no second OTA slot, or the image is larger than the slot |
 | `update_write_failed` | A flash write failed during the download |
 | `stream_error` | The connection broke during the download |
-| `download_stalled` | No bytes arrived for `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` |
-| `short_read` | The download ended before its size |
+| `download_stalled` | The download stopped sending; reported one to two `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` after its last byte |
+| `short_read` | The download's Content-Length or byte count was not the offer's `size` (without a `size`, the Content-Length) |
 | `checksum_mismatch` | The SHA-256 of the download did not match the offer |
 | `update_end_failed` | The image failed ESP-IDF's image check, or the boot slot could not be switched |
 | `state_save_failed` | The trial record could not be saved to NVS before the slot switch |
@@ -183,9 +183,10 @@ does not retry in place; a later check tries again.
 
 In managed mode, a check-in that got no answer (or a 5xx, 408 or 429) and a
 download that broke are tried again after 30 s, 2 min and 10 min, then at
-`check_interval_s`. A download the server refuses, a bad checksum or
-signature, and a flash failure wait for the next regular check. Every wait
-of a minute or more is spread by up to a tenth either way, so devices that
+`check_interval_s`. A download the server refuses, one longer than the
+offer's `size`, a bad checksum or signature, and a flash failure wait for the
+next regular check. Every wait of a minute or more is spread by up to about a
+tenth either way, so devices that
 power up together do not check in together from then on. In polling mode the
 application schedules its own calls.
 
@@ -485,22 +486,24 @@ rollback.
 
 The update logic is the shared core in `src/core`, copied from
 [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) at
-the commit in `src/core/CORE_VERSION`. Its host tests cover signing, SHA-256,
+the tag or commit in `src/core/CORE_VERSION`. Its host tests cover signing, SHA-256,
 response parsing, the trial record, rollback, and a power cut at every storage
-write. CI checks that `src/core` matches that commit, and builds the examples
+write. CI checks that `src/core` matches it, and builds the examples
 across IDF v5.1 through latest on Xtensa and RISC-V targets.
 
 ## Arduino and ESP-IDF
 
 The [Arduino library](https://github.com/wassie-dev/simpleOTAClient-Arduino)
 is this same client: the same `simpleota.h`, built from the same sources, so
-code that uses SimpleOTA works unchanged in a sketch. Two things differ,
-because Arduino-ESP32 has no Kconfig and no certificate bundle:
+code that uses SimpleOTA works unchanged in a sketch. Two things differ:
 
-- The build-time knobs above are `-D` flags there (`CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS`
-  and so on, with the same defaults), set in PlatformIO's `build_flags`.
-- Without `cert_pem`, TLS is verified against the ISRG Root X1 and X2
-  certificates that SimpleOTA's hosts chain to, instead of the bundle.
+- Arduino-ESP32 has no Kconfig, so the build-time knobs above are `-D` flags
+  there (`CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` and so on, with the same
+  defaults), set in PlatformIO's `build_flags`.
+- Without `cert_pem`, Arduino-ESP32 2.0.4 and later verify TLS against the
+  certificate bundle, as this component does. Arduino-ESP32 2.0.0 to 2.0.3
+  do not link the bundle, so there TLS is verified against ISRG Root X1 and
+  X2 and GTS Root R4 instead.
 
 ## Upgrading from 0.2
 

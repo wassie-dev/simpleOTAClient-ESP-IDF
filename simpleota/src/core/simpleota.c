@@ -236,7 +236,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
     esp_err_t (*attach)(void *conf) = config->crt_bundle_attach;
     if (!ca && !attach && !sota_framework_default_trust(&ca, &attach)) {
         SOTA_LOGE("no TLS trust anchor: enable CONFIG_MBEDTLS_CERTIFICATE_BUNDLE "
-                      "or set cert_pem");
+                      "(ESP-IDF) or set cert_pem");
         return ESP_ERR_INVALID_STATE;
     }
     sota_framework_init_logging(TAG);

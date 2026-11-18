@@ -32,7 +32,7 @@ with the header in `simpleota/include`, as plain files; its host tests live
 in the core repository. This repository is the packaging: the component's
 `CMakeLists.txt`, `Kconfig`, manifest, examples and docs. To move to another core tag or commit, run
 `scripts/update-core.sh <ref>` and commit the result. CI fails when the copy
-differs from the commit in `simpleota/src/core/CORE_VERSION`.
+differs from the tag or commit in `simpleota/src/core/CORE_VERSION`.
 
 **Releasing** (mirrors SimpleOTAClient-Arduino): bump `version:` in
 [simpleota/idf_component.yml](simpleota/idf_component.yml) and merge to

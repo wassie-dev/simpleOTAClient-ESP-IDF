@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.1
+
+Fixes from a security and robustness review, by moving to [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) 1.0.1 (tag `v1.0.1`, commit `5841c1c`). No API change, no Kconfig option changes, and nothing stored in NVS changes. TLS trust is unchanged: without `cert_pem` the component verifies against the ESP-IDF certificate bundle, as in 1.0.0. Core 1.0.1's new default trust is for the Arduino library only and is not built here.
+
+### Changed
+
+- **A dropped connection no longer costs a whole check interval.** In managed mode, a check-in that got no answer (or a 5xx, 408 or 429) and a download that broke are tried again after 30 s, 2 min and 10 min, then at `check_interval_s`. A check-in that ran out of memory, and a download that could not allocate its redirect buffer (reported as `https_begin_failed`), are retried the same way. Each failed download still reports `failed`.
+- **Check-ins are spread.** Every wait of a minute or more moves by up to about a tenth either way, so devices that power up together do not check in together from then on.
+- `simpleota_init()` warns when signing keys are pinned without `SIMPLEOTA_SECURITY_SIGNED`: in any other mode an update the server marks unsigned is installed on its checksum. The README's *Signed firmware* section says so too.
+- A check that offers nothing no longer allocates the 2 KB URL buffer.
+- The README's *TLS* section covers what the component cannot do: certificate expiry needs `CONFIG_MBEDTLS_HAVE_TIME_DATE` and a set clock, and the token is readable from flash.
+
+### Fixed
+
+- A check response cut off inside a value, such as one longer than the 4 KB buffer, could be read as a complete, shorter value. It is now an unusable offer.
+- `\uXXXX` escapes in a check response are decoded, a surrogate pair as one character. A server or proxy that writes `&` as `\u0026` no longer breaks the pre-signed download URL.
+- **The download is held to the offer's `size`**, which comes with its checksum, instead of the download's Content-Length. Until now a host that sent more or fewer bytes than `size`, with a Content-Length to match, had all of them written to flash, and the update failed only on its checksum. Now a Content-Length that differs from `size` fails with `short_read` before the update slot is opened, and a stream that runs past `size` stops before the excess is written. A download longer than `size` waits for the next regular check; a shorter one is retried early. An offer without a `size` falls back to the Content-Length, as before.
+
 ## 1.0.0
 
 The client is now [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core), copied into `simpleota/src/core` and `simpleota/include`. The Arduino library 1.0.0 ships the same code with this same `simpleota.h` API, so both have the same features, defaults and behaviour, and code that uses SimpleOTA moves between them unchanged.

@@ -3,7 +3,7 @@
  * @brief What differs between the two builds of the client:
  * the ESP-IDF component, configured by its Kconfig, and the Arduino
  * library, which links against Arduino-ESP32's prebuilt ESP-IDF and has
- * neither a Kconfig nor the certificate bundle.
+ * no Kconfig.
  */
 
 #ifndef SOTA_FRAMEWORK_H
@@ -50,8 +50,10 @@
 #endif
 
 /**
- * TLS trust when the application gives none: a CA certificate to pin, or
- * the certificate bundle's attach function. False when there is neither.
+ * TLS trust when the application gives none: the certificate bundle's
+ * attach function, or on an Arduino-ESP32 core without the bundle (before
+ * 2.0.4) a static PEM of root certificates. False, with both NULL, when
+ * there is neither.
  */
 bool sota_framework_default_trust(const char **cert_pem,
                                   esp_err_t (**crt_bundle_attach)(void *conf));

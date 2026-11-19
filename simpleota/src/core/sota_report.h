@@ -54,6 +54,50 @@ static inline uint32_t sota_poll_interval_s(bool connected, bool in_trial,
     return check_interval_s;
 }
 
+/** An HTTP result worth trying again soon: no response, a server error,
+ *  or a server asking for patience. Any other answer will not change by
+ *  asking again. */
+static inline bool sota_http_transient(int http_status)
+{
+    return http_status <= 0 || http_status >= 500 || http_status == 408 ||
+           http_status == 429;
+}
+
+/**
+ * Seconds until the next check after one that failed on the network, at
+ * the check-in or in the download: 30 s, 2 min and 10 min after the first
+ * three failures in a row, then the check interval, and never longer than
+ * it. failures is 0 after a check that did not fail that way.
+ */
+static inline uint32_t sota_retry_interval_s(uint32_t failures, uint32_t check_interval_s)
+{
+    static const uint16_t steps[] = {30u, 120u, 600u};
+    if (failures == 0 || failures > sizeof(steps) / sizeof(steps[0])) return check_interval_s;
+    return steps[failures - 1u] < check_interval_s ? steps[failures - 1u] : check_interval_s;
+}
+
+/** Waits from this long on are spread, so devices that start together (a
+ *  power cut ending, a batch off the line) do not check in together for
+ *  ever after. Shorter waits stay exact: the connection, trial and report
+ *  polls, and the first network retry. The later retries are spread too. */
+#define SOTA_JITTER_MIN_S 60u
+
+/**
+ * wait_s moved within a span of wait_s / 5 (rounded down) seconds: down by
+ * up to span / 2 rounded down, up by up to span / 2 rounded up: at most a
+ * tenth either way, except that an odd span reaches half a second further
+ * up (65 s gives 59 to 72 s). random is any 32-bit value, and its middle
+ * (0x80000000) leaves the wait unchanged when the span is even.
+ */
+static inline uint32_t sota_jitter_s(uint32_t wait_s, uint32_t random)
+{
+    if (wait_s < SOTA_JITTER_MIN_S) return wait_s;
+    const uint32_t span = wait_s / 5u;
+    const uint64_t jittered =
+        (uint64_t)wait_s - span / 2u + (((uint64_t)random * ((uint64_t)span + 1u)) >> 32);
+    return jittered > UINT32_MAX ? UINT32_MAX : (uint32_t)jittered;
+}
+
 /*
  * Outbox. Once a boot has worked out what happened to a trial, the report
  * moves here and the trial keys are cleared, so a later update never

@@ -106,8 +106,10 @@ int sota_net_dl_open(void *user, const char *url, int64_t *len, char *location,
 int sota_net_dl_read(void *user, uint8_t *buf, size_t cap)
 {
     sota_net_esp32_t *n = (sota_net_esp32_t *)user;
-    /* Blocks up to the HTTP timeout; the core reports an error after that
-     * long without a byte as download_stalled. */
+    /* esp_http_client_read() tries to fill buf, waiting up to the HTTP
+     * timeout for each piece, so bytes that arrived can come back one
+     * timeout later. The core times the stall from then: download_stalled
+     * comes one to two timeouts after the last byte. */
     int r = esp_http_client_read(n->dl, (char *)buf, (int)cap);
     if (r > 0) return r;
     if (r == 0 && esp_http_client_is_complete_data_received(n->dl)) return 0;

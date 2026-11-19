@@ -442,6 +442,7 @@ bool sota_engine_check(sota_engine_t *e)
     }
     free(body);
     if (status < 200 || status >= 300) {
+        e->net_failed = sota_http_transient(status);
         SOTA_LOGI("check: failed (HTTP %d)", status);
         free(resp);
         return false;
@@ -453,8 +454,12 @@ bool sota_engine_check(sota_engine_t *e)
         send_reports(e);
     }
 
-    e->offer.url = (char *)malloc(OFFER_URL_CAP);
-    e->offer.url_cap = e->offer.url ? OFFER_URL_CAP : 0;
+    /* The URL buffer only when there is an offer to put in it. */
+    bool offered = false;
+    if (sota_json_get_bool(resp, "update_available", &offered) && offered) {
+        e->offer.url = (char *)malloc(OFFER_URL_CAP);
+        e->offer.url_cap = e->offer.url ? OFFER_URL_CAP : 0;
+    }
     sota_check_result_t r = sota_protocol_parse_check(resp, &e->offer);
     if (r == SOTA_CHECK_OFFER) {
         e->has_offer = true;
@@ -478,14 +483,30 @@ bool sota_engine_check(sota_engine_t *e)
 uint32_t sota_engine_step(sota_engine_t *e, bool connected)
 {
     sota_engine_service(e);
+    e->net_failed = false;
     if (connected && sota_engine_check(e) && !e->in_trial && !sota_engine_waiting) {
         sota_engine_apply(e);
+    }
+    /* A step without the link says nothing about the server. */
+    if (connected) {
+        if (!e->net_failed) {
+            e->net_failures = 0;
+        } else if (e->net_failures < UINT8_MAX) {
+            e->net_failures++;
+        }
     }
     sota_sys_lock();
     bool report_pending = e->outbox.count > 0;
     sota_sys_unlock();
-    return sota_poll_interval_s(connected, e->in_trial, report_pending, e->report_failures,
-                                SOTA_TRIAL_RETRY_INTERVAL_S, e->cfg.check_interval_s);
+    uint32_t wait_s = sota_poll_interval_s(connected, e->in_trial, report_pending,
+                                           e->report_failures, SOTA_TRIAL_RETRY_INTERVAL_S,
+                                           e->cfg.check_interval_s);
+    /* A check that failed on the network comes back sooner than the next
+     * regular one. */
+    if (wait_s == e->cfg.check_interval_s) {
+        wait_s = sota_retry_interval_s(e->net_failures, e->cfg.check_interval_s);
+    }
+    return sota_jitter_s(wait_s, sota_sys_random());
 }
 
 bool sota_engine_reboot_for_update(sota_engine_t *e)

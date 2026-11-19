@@ -219,6 +219,12 @@ static esp_err_t init_engine(const simpleota_config_t *config)
             return ESP_ERR_INVALID_ARG;
         }
     }
+    /* The keys only bind in SIGNED mode: in any other, the server's word
+     * that an artifact is unsigned is taken (sota_signed_gate()). */
+    if (config->num_signing_keys && config->security_mode != SIMPLEOTA_SECURITY_SIGNED) {
+        SOTA_LOGW("signing keys are pinned but security_mode is not SIGNED: "
+                  "unsigned updates are still accepted");
+    }
     return ESP_OK;
 }
 
@@ -230,7 +236,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
     esp_err_t (*attach)(void *conf) = config->crt_bundle_attach;
     if (!ca && !attach && !sota_framework_default_trust(&ca, &attach)) {
         SOTA_LOGE("no TLS trust anchor: enable CONFIG_MBEDTLS_CERTIFICATE_BUNDLE "
-                      "or set cert_pem");
+                      "(ESP-IDF) or set cert_pem");
         return ESP_ERR_INVALID_STATE;
     }
     sota_framework_init_logging(TAG);

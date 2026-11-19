@@ -152,7 +152,9 @@ typedef enum {
  * - `update_begin_failed`: no second OTA slot, or the image is too big.
  * - `update_write_failed`: a flash write failed.
  * - `stream_error`, `download_stalled`, `short_read`: the download broke,
- *   received nothing for CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS, or ended early.
+ *   stopped sending (reported one to two CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS
+ *   after its last byte), or was not the offer's `size` (without one, its
+ *   Content-Length).
  * - `checksum_mismatch`: the download did not match its SHA-256.
  * - `update_end_failed`: the image failed ESP-IDF's check, or the boot slot
  *   could not be switched.
@@ -210,7 +212,12 @@ typedef struct {
                                         Set it only in the exact image you upload,
                                         to the build SimpleOTA gives it. */
     uint8_t nvs_schema_version;    /**< The data schema this firmware expects. Default: 1. */
-    uint32_t check_interval_s;     /**< Seconds between checks. Default: 3600. */
+    uint32_t check_interval_s;     /**< Seconds between checks. Default: 3600. The
+                                        managed task spreads each wait of a minute
+                                        or more by up to a tenth either way, so a
+                                        fleet does not check in at once, and
+                                        retries a check or download that failed on
+                                        the network after 30 s, 2 min and 10 min. */
     uint32_t initial_delay_ms;     /**< Delay before the first check after start().
                                         Default: none. Not a wait for the IP; see
                                         is_connected. */
@@ -223,7 +230,10 @@ typedef struct {
     bool disable_auto_reboot;      /**< true: the app calls simpleota_reboot_for_update(). */
 
     /** Pinned public keys for signed firmware, at most 2. Parsed at init,
-     *  which fails on a PEM that does not parse rather than run unpinned. */
+     *  which fails on a PEM that does not parse rather than run unpinned.
+     *  They bind only with security_mode SIMPLEOTA_SECURITY_SIGNED: in any
+     *  other mode an update the server marks unsigned is still accepted on
+     *  its checksum, and init logs a warning. */
     const simpleota_signing_key_t *signing_keys;
     uint8_t num_signing_keys;      /**< Entries in signing_keys. */
 
@@ -240,13 +250,16 @@ typedef struct {
     void *user_ctx;                /**< Passed to is_connected and event_cb. */
 
     /** TLS trust, always verified. Default: the ESP-IDF certificate bundle,
-     *  or on Arduino, which does not ship it, the ISRG Root X1 and X2
-     *  certificates that SimpleOTA's hosts chain to. Set cert_pem to pin a
-     *  specific CA, or several concatenated, instead (then the bundle is not
-     *  used). */
+     *  except on Arduino-ESP32 2.0.0 to 2.0.3, which do not link it: there,
+     *  ISRG Root X1 and X2 and GTS Root R4. esp_crt_bundle_set(), which
+     *  Arduino-ESP32's setCACertBundle(bundle, size) calls from 3.0.4,
+     *  replaces that bundle for the whole application, this client
+     *  included; 2.x's WiFiClientSecure keeps its own copy and does not. Set
+     *  cert_pem to pin a specific CA, or several concatenated, instead (then
+     *  the default is not used). */
     const char *cert_pem;
     esp_err_t (*crt_bundle_attach)(void *conf); /**< Another bundle's attach function.
-                                                     Default: ESP-IDF's bundle. */
+                                                     Default: the trust above. */
 } simpleota_config_t;
 
 /**

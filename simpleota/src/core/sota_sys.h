@@ -54,6 +54,9 @@ void sota_sys_wdt_disarm(void);
  *  running. */
 void sota_sys_wdt_quiesce(void);
 
+/** 32 random bits, to spread the fleet's check-ins. Not for secrets. */
+uint32_t sota_sys_random(void);
+
 /** Restart the chip. */
 SOTA_NORETURN void sota_sys_restart(void);
 

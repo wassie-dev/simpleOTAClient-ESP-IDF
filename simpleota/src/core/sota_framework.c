@@ -7,19 +7,26 @@
 
 #include "sota_framework.h"
 
+#include <stddef.h>
+
 #include "esp_log.h"
 
 #if defined(ARDUINO)
+#if __has_include("esp_arduino_version.h")
+#include "esp_arduino_version.h"
+#endif
+/* Arduino-ESP32 links the certificate bundle from 2.0.4. */
+#if !defined(ESP_ARDUINO_VERSION)
+#define SOTA_DEFAULT_PEM 1
+#elif ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(2, 0, 4)
+#define SOTA_DEFAULT_PEM 1
+#endif
+#endif
 
-#include "nvs_flash.h"
-#include "sota_engine.h"
-#include "sota_sys.h"
-#include "sota_wdt_calc.h"
-
-/* ISRG Root X1 and X2 (Let's Encrypt), which the SimpleOTA API host and its
- * firmware storage host chain to: X1 for RSA certificates, X2 for ECDSA
- * ones, should a host switch. */
-static const char k_isrg_roots[] =
+#if defined(SOTA_DEFAULT_PEM)
+/* ISRG Root X1 and X2, which Let's Encrypt chains to, and GTS Root R4,
+ * which Google Trust Services' WE1 chains to. */
+static const char k_default_roots[] =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n"
     "TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n"
@@ -64,15 +71,46 @@ static const char k_isrg_roots[] =
     "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n"
     "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n"
     "/q4AaOeMSQ+2b1tbFfLn\n"
+    "-----END CERTIFICATE-----\n"
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIICCTCCAY6gAwIBAgINAgPlwGjvYxqccpBQUjAKBggqhkjOPQQDAzBHMQswCQYD\n"
+    "VQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEUMBIG\n"
+    "A1UEAxMLR1RTIFJvb3QgUjQwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAwMDAw\n"
+    "WjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2Vz\n"
+    "IExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjQwdjAQBgcqhkjOPQIBBgUrgQQAIgNi\n"
+    "AATzdHOnaItgrkO4NcWBMHtLSZ37wWHO5t5GvWvVYRg1rkDdc/eJkTBa6zzuhXyi\n"
+    "QHY7qca4R9gq55KRanPpsXI5nymfopjTX15YhmUPoYRlBtHci8nHc8iMai/lxKvR\n"
+    "HYqjQjBAMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQW\n"
+    "BBSATNbrdP9JNqPV2Py1PsVq8JQdjDAKBggqhkjOPQQDAwNpADBmAjEA6ED/g94D\n"
+    "9J+uHXqnLrmvT/aDHQ4thQEd0dlq7A/Cr8deVl5c1RxYIigL9zC2L7F8AjEA8GE8\n"
+    "p/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD\n"
     "-----END CERTIFICATE-----\n";
+#elif CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+#include "esp_crt_bundle.h"
+#endif
 
 bool sota_framework_default_trust(const char **cert_pem,
                                   esp_err_t (**crt_bundle_attach)(void *conf))
 {
-    *cert_pem = k_isrg_roots;
+    *cert_pem = NULL;
     *crt_bundle_attach = NULL;
+#if defined(SOTA_DEFAULT_PEM)
+    *cert_pem = k_default_roots;
     return true;
+#elif CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+    *crt_bundle_attach = esp_crt_bundle_attach;
+    return true;
+#else
+    return false;
+#endif
 }
+
+#if defined(ARDUINO)
+
+#include "nvs_flash.h"
+#include "sota_engine.h"
+#include "sota_sys.h"
+#include "sota_wdt_calc.h"
 
 /* Arduino-ESP32 logs only errors by default; the Arduino library always
  * showed its warnings, such as a rejected token. */
@@ -104,23 +142,6 @@ bool verifyRollbackLater(void)
 #endif
 
 #else /* ESP-IDF */
-
-#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
-#include "esp_crt_bundle.h"
-#endif
-
-bool sota_framework_default_trust(const char **cert_pem,
-                                  esp_err_t (**crt_bundle_attach)(void *conf))
-{
-    *cert_pem = NULL;
-#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
-    *crt_bundle_attach = esp_crt_bundle_attach;
-    return true;
-#else
-    *crt_bundle_attach = NULL;
-    return false;
-#endif
-}
 
 void sota_framework_init_logging(const char *tag)
 {

@@ -8,6 +8,9 @@
 #include <stdio.h>
 
 #include "esp_mac.h"
+#if __has_include("esp_random.h")
+#include "esp_random.h" /* ESP-IDF 5; esp_system.h has it before */
+#endif
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -77,6 +80,11 @@ void sota_sys_timer_stop(void **timer)
     esp_timer_stop((esp_timer_handle_t)*timer);
     esp_timer_delete((esp_timer_handle_t)*timer);
     *timer = NULL;
+}
+
+uint32_t sota_sys_random(void)
+{
+    return esp_random();
 }
 
 void sota_sys_restart(void)

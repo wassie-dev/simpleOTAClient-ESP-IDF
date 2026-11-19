@@ -88,10 +88,12 @@ static void progress(sota_engine_t *e, size_t total, size_t expected, size_t *la
 }
 
 /* Stream the image into the slot, hashing and verifying as it goes. Returns
- * NULL, or the reason it failed. */
+ * NULL, or the reason it failed with *net set when the network is to blame
+ * and a retry may go through. */
 static const char *download(sota_engine_t *e, job_t *job, size_t expected,
-                            sota_sha256_ctx *sha)
+                            sota_sha256_ctx *sha, bool *net)
 {
+    *net = true;
     size_t total = 0;
     size_t last = (size_t)-1;
     uint32_t last_byte_ms = sota_sys_now_ms();
@@ -107,7 +109,16 @@ static const char *download(sota_engine_t *e, job_t *job, size_t expected,
             return stalled ? "download_stalled" : "stream_error";
         }
         last_byte_ms = sota_sys_now_ms();
-        if (!sota_image_write(job->chunk, (size_t)r)) return "update_write_failed";
+        /* More than was announced can never match: stop before the write.
+         * The same bytes come again on a retry, so this one waits. */
+        if (expected && (size_t)r > expected - total) {
+            *net = false;
+            return "short_read";
+        }
+        if (!sota_image_write(job->chunk, (size_t)r)) {
+            *net = false;
+            return "update_write_failed";
+        }
         sota_sha256_update(sha, job->chunk, (size_t)r);
         if (job->verifier) sota_verifier_update(job->verifier, job->chunk, (size_t)r);
         total += (size_t)r;
@@ -243,6 +254,7 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
     int http = open_download(e, &len, &refused);
     if (refused) return give_up(e, &job, refused, SOTA_APPLY_FLASH_FAIL);
     if (http != 200) {
+        e->net_failed = sota_http_transient(http);
         char reason[24];
         if (http == 0) {
             strcpy(reason, "https_begin_failed");
@@ -253,7 +265,15 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
     }
     job.downloading = true;
 
-    size_t expected = len > 0 ? (size_t)len : e->offer.size;
+    /* The offer's size, which comes with its checksum, rules: the download
+     * host's Content-Length is checked against it before the slot is
+     * opened. Longer fails the same way every time; shorter may be a
+     * broken transfer, so it is retried. */
+    size_t expected = e->offer.size ? e->offer.size : len > 0 ? (size_t)len : 0;
+    if (len > 0 && (uint64_t)len != expected) {
+        e->net_failed = (uint64_t)len < expected;
+        return give_up(e, &job, "short_read", SOTA_APPLY_FLASH_FAIL);
+    }
     uint32_t slot = 0, running = 0;
     job.writing = sota_image_begin(expected, &slot, &running);
     job.chunk = (uint8_t *)malloc(SOTA_DL_CHUNK);
@@ -263,10 +283,14 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
 
     sota_sha256_ctx sha;
     sota_sha256_init(&sha);
-    const char *failed = download(e, &job, expected, &sha);
+    bool net = false;
+    const char *failed = download(e, &job, expected, &sha, &net);
     sota_net_dl_close(e->cfg.user);
     job.downloading = false;
-    if (failed) return give_up(e, &job, failed, SOTA_APPLY_FLASH_FAIL);
+    if (failed) {
+        e->net_failed = net;
+        return give_up(e, &job, failed, SOTA_APPLY_FLASH_FAIL);
+    }
     sota_engine_post_status(e, "downloaded", NULL, e->offer.deployment, e->offer.build);
 
     /* The checksum first, which tells a broken transfer apart; then the

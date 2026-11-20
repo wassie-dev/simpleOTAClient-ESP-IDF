@@ -190,6 +190,13 @@ Use `examples/signed` instead of `examples/basic`, with the same steps as above
 - Sign the `.bin` before uploading it to SimpleOTA (openssl, or the
   dashboard's in-browser signer), exactly as for a signed Arduino build.
 
+To test strict signing, also pick "Strict signing" under Example
+Configuration, Security mode, in menuconfig, and enter your project's id
+(its UUID, lowercase with hyphens). Release the build with the SimpleOTA CLI
+so it carries a strict signature. A build without one is refused before the
+download with `failed` / `signature_invalid`, and the board stays on its
+current build.
+
 ## 10. Test rollback (optional)
 
 The examples set `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`. Run the table once

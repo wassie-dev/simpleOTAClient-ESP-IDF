@@ -14,8 +14,8 @@ Moves to [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-co
 
 ### Changed
 
-- A download whose first bytes are not a firmware image for this chip fails with the new reason `image_mismatch` before anything is written. Until now it downloaded in full and failed with `update_end_failed`.
-- In managed mode a check-in answered with 429 or 503 and a `Retry-After` in seconds waits that long, a day at most and up to a tenth longer, instead of retrying after 30 s, 2 min and 10 min. A trial keeps its quick checks.
+- A download whose first bytes are not a firmware image for this chip fails with the new reason `image_mismatch` on its first chunk, before anything is written. Before, a download that was not a firmware image at all also failed on its first chunk, because `esp_ota_write()` refuses it, but was reported as `update_write_failed`: if you filter on that reason, add `image_mismatch`. An image built for another chip used to download in full and fail with `update_end_failed`.
+- In managed mode a check-in answered with 429 or 503 and a `Retry-After` in seconds can lengthen the wait before the next check: when the Retry-After, capped at a day, is longer than the wait the device would take anyway (the 30 s, 2 min and 10 min retries, or `check_interval_s`), it waits that long plus up to a tenth. A shorter Retry-After changes nothing. A trial keeps its quick checks.
 - The strict signature check adds about 1 KB of flash to every build that keeps signed updates in. In an update that checks one, a second verifier takes about 700 bytes of heap, freed before the download starts.
 
 ### Fixed

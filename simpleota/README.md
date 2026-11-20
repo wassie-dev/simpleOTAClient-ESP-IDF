@@ -214,10 +214,11 @@ offer's `size`, a bad checksum or signature, and a flash failure wait for the
 next regular check. Every wait of a minute or more is spread by up to about a
 tenth either way, so devices that
 power up together do not check in together from then on. A check-in answered
-with 429 or 503 and a `Retry-After` in seconds waits that long instead, a day
-at most and up to a tenth longer, except during a trial, which keeps its quick
-checks so its confirm timeout does not wait for a busy server. In polling mode
-the application schedules its own calls.
+with 429 or 503 and a `Retry-After` in seconds can only lengthen the next
+wait: when the Retry-After, capped at a day, is longer than the wait above,
+the device waits that long plus up to a tenth, and a shorter one changes
+nothing. A trial keeps its quick checks so its confirm timeout does not wait
+for a busy server. In polling mode the application schedules its own calls.
 
 ## Rollback
 
@@ -605,11 +606,16 @@ left at zero, and nothing stored in NVS changes. `SIMPLEOTA_API_VERSION` is
 1.2. Two things a device does differently on its own:
 
 - A download whose first bytes are not a firmware image for this chip fails
-  with `image_mismatch` before anything is written, instead of downloading in
-  full and failing with `update_end_failed`.
+  with `image_mismatch` on its first chunk, before anything is written. A
+  download that is not a firmware image at all failed on its first chunk
+  before too, but as `update_write_failed`: if you filter on that reason, add
+  `image_mismatch`. An image built for another chip used to download in full
+  and fail with `update_end_failed`.
 - In managed mode a check-in answered with 429 or 503 and a `Retry-After`
-  waits that long, a day at most, instead of the 30 s, 2 min and 10 min
-  retries. A trial keeps its quick checks.
+  longer than the wait the device would take anyway (the 30 s, 2 min and
+  10 min retries, or `check_interval_s`) lengthens that wait to the
+  Retry-After, a day at most, plus up to a tenth. A shorter one changes
+  nothing. A trial keeps its quick checks.
 
 ## Upgrading from 0.2
 

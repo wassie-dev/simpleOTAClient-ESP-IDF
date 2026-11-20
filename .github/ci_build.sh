@@ -18,6 +18,13 @@ case "$mode" in
   *) idf.py build ;;
 esac
 
+# The strict job must really build strict signing, not fall back to the
+# example's default security mode.
+if [ "$mode" = "strict" ] && ! grep -qx 'CONFIG_EXAMPLE_SECURITY_STRICT=y' sdkconfig; then
+  echo "strict mode is not on: sdkconfig lacks CONFIG_EXAMPLE_SECURITY_STRICT=y" >&2
+  exit 1
+fi
+
 # The example image must leave at least 20 percent of its smallest app slot
 # free, so growth in the component shows up here before it fills a user's
 # slot.

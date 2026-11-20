@@ -11,6 +11,7 @@
 #include "sota_boot.h"
 #include "sota_engine_priv.h"
 #include "sota_json.h"
+#include "sota_manifest.h"
 #include "sota_net.h"
 #include "sota_sys.h"
 #include "sota_trial.h"
@@ -69,7 +70,8 @@ bool sota_engine_init(sota_engine_t *e, const sota_config_t *cfg)
      * 24 h is a bug, not a configuration. */
     e->cfg.confirm_timeout_s = clamp(e->cfg.confirm_timeout_s, 10u, 86400u);
     if (!e->cfg.http_timeout_ms) e->cfg.http_timeout_ms = SOTA_DEFAULT_HTTP_TIMEOUT_MS;
-    if (!token_ok(e->cfg.token) || sota_validate_server_url(e->cfg.server_url) != SOTA_URL_OK) {
+    if (!token_ok(e->cfg.token) || sota_validate_server_url(e->cfg.server_url) != SOTA_URL_OK ||
+        (e->cfg.project_id && !sota_manifest_field_ok(e->cfg.project_id))) {
         return false;
     }
     s_owner = e;
@@ -78,7 +80,7 @@ bool sota_engine_init(sota_engine_t *e, const sota_config_t *cfg)
 
 bool sota_engine_add_key(sota_engine_t *e, const char *key_id, const char *pem)
 {
-    if (e->num_keys >= SOTA_VERIFIER_MAX_KEYS ||
+    if (!SOTA_SIGNED_UPDATES || e->num_keys >= SOTA_VERIFIER_MAX_KEYS ||
         !sota_parse_ed25519_public_key_pem(pem, e->keys[e->num_keys]) ||
         !sota_copy_field(e->key_ids[e->num_keys], sizeof(e->key_ids[0]), key_id)) {
         return false;
@@ -108,14 +110,16 @@ void sota_engine_clear_offer(sota_engine_t *e)
 
 /* One attempt during a trial: the confirm timeout's rollback may be
  * waiting behind this request, and the watchdog margin covers one. */
-static int post(sota_engine_t *e, const char *path, const char *body, char *resp, size_t cap)
+static int post(sota_engine_t *e, const char *path, const char *body, char *resp, size_t cap,
+                uint32_t *retry_after_s)
 {
     char url[SOTA_SERVER_URL_MAX_LEN + 32u];
     if (!sota_build_api_url(e->cfg.server_url, path, url, sizeof(url))) return -1;
     int attempts = e->in_trial ? 1 : 2;
     for (int i = 0; i < attempts; ++i) {
         if (i) sota_sys_sleep_ms(RETRY_DELAY_MS);
-        int status = sota_net_post(e->cfg.user, url, e->cfg.token, body, resp, cap);
+        int status = sota_net_post(e->cfg.user, url, e->cfg.token, body, resp, cap,
+                                   retry_after_s);
         if (status <= 0) continue;
         if ((status == 401 || status == 403) && !e->auth_warned) {
             e->auth_warned = true;
@@ -137,7 +141,7 @@ int sota_engine_post_status(sota_engine_t *e, const char *event, const char *rea
     }
     SOTA_LOGI("status %s build %u%s%s", event, (unsigned)build, reason ? " " : "",
               reason ? reason : "");
-    return post(e, SOTA_PATH_STATUS, body, NULL, 0);
+    return post(e, SOTA_PATH_STATUS, body, NULL, 0, NULL);
 }
 
 /* ---------------------------------------------------------------------------
@@ -436,11 +440,13 @@ bool sota_engine_check(sota_engine_t *e)
     char *body = (char *)malloc(body_cap);
     char *resp = (char *)malloc(CHECK_RESP_CAP);
     int status = -1;
+    uint32_t retry_after_s = 0;
     if (body && resp &&
         sota_protocol_check_body(&e->cfg.device, &e->st.live, version, body, body_cap)) {
-        status = post(e, SOTA_PATH_CHECK, body, resp, CHECK_RESP_CAP);
+        status = post(e, SOTA_PATH_CHECK, body, resp, CHECK_RESP_CAP, &retry_after_s);
     }
     free(body);
+    e->retry_after_s = status == 429 || status == 503 ? retry_after_s : 0;
     if (status < 200 || status >= 300) {
         e->net_failed = sota_http_transient(status);
         SOTA_LOGI("check: failed (HTTP %d)", status);
@@ -485,7 +491,11 @@ uint32_t sota_engine_step(sota_engine_t *e, bool connected)
     sota_engine_service(e);
     e->net_failed = false;
     if (connected && sota_engine_check(e) && !e->in_trial && !sota_engine_waiting) {
-        sota_engine_apply(e);
+        if (sota_app_can_update(e->cfg.user)) {
+            sota_engine_apply(e);
+        } else {
+            SOTA_LOGI("the application put build %u off", (unsigned)e->offer.build);
+        }
     }
     /* A step without the link says nothing about the server. */
     if (connected) {
@@ -506,7 +516,14 @@ uint32_t sota_engine_step(sota_engine_t *e, bool connected)
     if (wait_s == e->cfg.check_interval_s) {
         wait_s = sota_retry_interval_s(e->net_failures, e->cfg.check_interval_s);
     }
-    return sota_jitter_s(wait_s, sota_sys_random());
+    wait_s = sota_jitter_s(wait_s, sota_sys_random());
+    /* A busy server's own number, except during a trial: its confirm
+     * timeout does not wait, and a healthy image must not roll back because
+     * the server asked for patience. */
+    if (connected && !e->in_trial) {
+        wait_s = sota_retry_after_wait_s(wait_s, e->retry_after_s, sota_sys_random());
+    }
+    return wait_s;
 }
 
 bool sota_engine_reboot_for_update(sota_engine_t *e)

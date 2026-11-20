@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "sota_framework.h"
 
@@ -30,9 +31,20 @@ static void client_config(const sota_net_esp32_t *n, const char *url,
     }
 }
 
-int sota_net_post(void *user, const char *url, const char *token, const char *body,
-                  char *resp, size_t cap)
+/* user_data is where the caller wants the Retry-After header, or NULL. */
+static esp_err_t on_post_event(esp_http_client_event_t *evt)
 {
+    if (evt->event_id == HTTP_EVENT_ON_HEADER && evt->user_data &&
+        strcasecmp(evt->header_key, "Retry-After") == 0) {
+        *(uint32_t *)evt->user_data = sota_net_parse_retry_after(evt->header_value);
+    }
+    return ESP_OK;
+}
+
+int sota_net_post(void *user, const char *url, const char *token, const char *body,
+                  char *resp, size_t cap, uint32_t *retry_after_s)
+{
+    if (retry_after_s) *retry_after_s = 0;
     /* Sized to the token: a fixed buffer would fail every request for a
      * long token as if the network were down. */
     size_t auth_len = strlen("Bearer ") + strlen(token) + 1;
@@ -43,6 +55,8 @@ int sota_net_post(void *user, const char *url, const char *token, const char *bo
     esp_http_client_config_t cfg;
     client_config((const sota_net_esp32_t *)user, url, &cfg);
     cfg.method = HTTP_METHOD_POST;
+    cfg.event_handler = on_post_event;
+    cfg.user_data = retry_after_s;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) {
         free(auth);

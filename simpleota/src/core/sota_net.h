@@ -33,14 +33,31 @@ enum {
                               with download_stalled after http_timeout_ms. */
 };
 
+/** A Retry-After header's value in seconds, saturated; 0 when it is not a
+ *  plain number of seconds (the HTTP-date form needs a clock). */
+static inline uint32_t sota_net_parse_retry_after(const char *value)
+{
+    uint32_t s = 0;
+    while (*value == ' ' || *value == '\t') ++value;
+    if (*value < '0' || *value > '9') return 0;
+    for (; *value >= '0' && *value <= '9'; ++value) {
+        uint32_t d = (uint32_t)(*value - '0');
+        s = s > (UINT32_MAX - d) / 10u ? UINT32_MAX : s * 10u + d;
+    }
+    while (*value == ' ' || *value == '\t') ++value;
+    return *value ? 0 : s;
+}
+
 /**
  * POST body as JSON to url, with "Authorization: Bearer <token>". One
  * attempt: the engine retries. Returns the HTTP status, or -1 when no
  * response came back. When resp is not NULL it gets up to cap - 1 bytes of
- * the response body, NUL-terminated.
+ * the response body, NUL-terminated. When retry_after_s is not NULL it
+ * gets the response's Retry-After header (sota_net_parse_retry_after()),
+ * 0 when there is none.
  */
 int sota_net_post(void *user, const char *url, const char *token, const char *body,
-                  char *resp, size_t cap);
+                  char *resp, size_t cap, uint32_t *retry_after_s);
 
 /**
  * Start a firmware download: a GET without the Authorization header (the

@@ -127,6 +127,8 @@ bool sota_decode_signature_b64(const char *b64, uint8_t out[64]) {
     return true;
 }
 
+#if SOTA_SIGNED_UPDATES
+
 /* ---------------------------------------------------------------------------
  * sota_sig_verifier_t
  * ------------------------------------------------------------------------- */
@@ -161,3 +163,5 @@ bool sota_verifier_final(sota_sig_verifier_t *v) {
     v->num_keys = 0;  /* contexts are consumed; require a fresh begin() */
     return ok;
 }
+
+#endif /* SOTA_SIGNED_UPDATES */

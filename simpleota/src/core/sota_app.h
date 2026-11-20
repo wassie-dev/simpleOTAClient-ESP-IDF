@@ -42,6 +42,10 @@ typedef struct {
  *  user is sota_config_t::user. */
 void sota_app_event(void *user, const sota_event_t *event);
 
+/** A managed step has an offer it is about to download: false puts it off
+ *  until a later check offers it again. */
+bool sota_app_can_update(void *user);
+
 /** The confirm timeout fired, possibly in a timer task: arrange for
  *  sota_engine_service() to run soon on a task that may block. */
 void sota_app_wake(void *user);

@@ -1,15 +1,22 @@
 #!/bin/bash
 # Build the example in the working directory, check that the image leaves
-# headroom in its app slot, then optionally require or reject a wdt_hal_init
+# headroom in its app slot and links the Ed25519 verifier unless signed
+# updates are built out, then optionally require or reject a wdt_hal_init
 # reference in the trial watchdog's object file.
+#
+#   build, require  the example's own sdkconfig.defaults
+#   absent          plus sdkconfig.defaults.no_wdt (trial watchdog opted out)
+#   unsigned        plus sdkconfig.defaults.unsigned (signed updates built out)
+#   strict          plus sdkconfig.defaults.strict (strict signing)
 set -euo pipefail
 mode="${1:-build}"
 
-if [ "$mode" = "absent" ]; then
-  idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.no_wdt" build
-else
-  idf.py build
-fi
+case "$mode" in
+  absent) idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.no_wdt" build ;;
+  unsigned) idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.unsigned" build ;;
+  strict) idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.strict" build ;;
+  *) idf.py build ;;
+esac
 
 # The example image must leave at least 20 percent of its smallest app slot
 # free, so growth in the component shows up here before it fills a user's
@@ -44,7 +51,38 @@ if free * 100 < slot * 20:
     sys.exit("the example leaves less than 20 percent of its app slot free")
 PY
 
-if [ "$mode" = "build" ]; then
+nm_bin=$(grep -E '^CMAKE_NM:' build/CMakeCache.txt | cut -d= -f2)
+if [ -z "$nm_bin" ] || [ ! -x "$nm_bin" ]; then
+  echo "toolchain nm not found in build/CMakeCache.txt" >&2
+  exit 1
+fi
+echo "nm: $nm_bin"
+
+# The image has the client, and its Ed25519 verifier exactly when signed
+# updates are built in.
+elf=$(python -c "import json; d = json.load(open('build/project_description.json')); print(d['build_dir'] + '/' + d['app_elf'])")
+"$nm_bin" "$elf" > /tmp/sota-app-nm.txt
+grep -qE '[[:space:]]T[[:space:]]+simpleota_init$' /tmp/sota-app-nm.txt || {
+  echo "simpleota_init is not in $elf" >&2
+  exit 1
+}
+verifier=0
+grep -qE '[[:space:]]T[[:space:]]+crypto_ed25519_check_init$' /tmp/sota-app-nm.txt && verifier=1
+if [ "$mode" = "unsigned" ]; then
+  if [ $verifier -eq 1 ]; then
+    echo "the Ed25519 verifier is linked with signed updates built out" >&2
+    exit 1
+  fi
+  echo "the Ed25519 verifier is absent with signed updates built out"
+  exit 0
+fi
+if [ $verifier -eq 0 ]; then
+  echo "the Ed25519 verifier is not linked" >&2
+  exit 1
+fi
+echo "the Ed25519 verifier is linked"
+
+if [ "$mode" = "build" ] || [ "$mode" = "strict" ]; then
   exit 0
 fi
 
@@ -55,13 +93,6 @@ if [ -z "$obj" ]; then
   exit 1
 fi
 echo "watchdog object: $obj"
-
-nm_bin=$(grep -E '^CMAKE_NM:' build/CMakeCache.txt | cut -d= -f2)
-if [ -z "$nm_bin" ] || [ ! -x "$nm_bin" ]; then
-  echo "toolchain nm not found in build/CMakeCache.txt" >&2
-  exit 1
-fi
-echo "nm: $nm_bin"
 "$nm_bin" "$obj" | tee /tmp/sota-wdt-nm.txt
 
 if [ "$mode" = "require" ]; then

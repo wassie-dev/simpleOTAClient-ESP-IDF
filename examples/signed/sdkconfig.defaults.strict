@@ -1,0 +1,4 @@
+# Layered on sdkconfig.defaults by CI: strict signing, with a project id in
+# the form simpleota_init() accepts. Use your own project's id.
+CONFIG_EXAMPLE_SECURITY_STRICT=y
+CONFIG_EXAMPLE_SIMPLEOTA_PROJECT_ID="00000000-0000-4000-8000-000000000000"

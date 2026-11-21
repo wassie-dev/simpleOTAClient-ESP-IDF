@@ -104,6 +104,26 @@ while the managed task runs, `simpleota_check()` returns
 `ESP_ERR_INVALID_STATE` and `simpleota_apply()` returns `SIMPLEOTA_NO_OFFER`, with a warning.
 [examples/polling](../examples/polling) is a complete project.
 
+### Putting an update off
+
+In managed mode, `.can_update` lets the application hold an offered update
+back, on low battery or in the middle of a job that must not be interrupted:
+
+```c
+static bool can_update(void *ctx) {
+    return battery_percent() > 30;   // false: not now
+}
+
+cfg.can_update = can_update;
+```
+
+The managed task calls it after `SIMPLEOTA_EVENT_UPDATE_AVAILABLE` and before
+the download. When it returns false nothing is downloaded, and the next check
+asks again; call `simpleota_check_now()` once the device is ready to bring
+that forward. Keep it quick, and don't call the client from it. Polling mode
+does not call it: there the application decides by calling
+`simpleota_apply()`.
+
 `simpleota_set_server_url()` moves check-ins to another `https://` server
 while the managed task is stopped, and `simpleota_last_offered_version()`
 returns the last offer's version label.
@@ -117,6 +137,9 @@ In short:
 
 - Fill a [`simpleota_config_t`](https://wassie-dev.github.io/simpleOTAClient-core/latest/structsimpleota__config__t.html)
   from all zeros and call `simpleota_init()` early. Strings are copied.
+  `can_update` puts updates off in managed mode (see
+  [Putting an update off](#putting-an-update-off)), and `project_id` turns
+  on strict signatures (see [Strict signing](#strict-signing)).
 - Managed mode: `simpleota_start()`, `simpleota_stop()`,
   `simpleota_check_now()`.
 - Polling mode: `simpleota_check()`, then `simpleota_apply()`, from one
@@ -137,8 +160,10 @@ Build-time knobs (menuconfig, "SimpleOTA"): task stack size (12288),
 priority (5), HTTP timeout (15 s), HTTP TX buffer (2048 -- must fit the long
 pre-signed download URLs), download chunk size (4096),
 `SIMPLEOTA_SOFTWARE_ROLLBACK` (on; only without bootloader rollback, see
-[Rollback](#rollback)), and `SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` (off), which
-leaves the trial watchdog out.
+[Rollback](#rollback)), `SIMPLEOTA_DISABLE_TRIAL_WATCHDOG` (off), which
+leaves the trial watchdog out, and `SIMPLEOTA_DISABLE_SIGNED_UPDATES` (off),
+which leaves the Ed25519 verifier out (see
+[Without signed updates](#without-signed-updates)).
 
 ## Update lifecycle
 
@@ -156,12 +181,13 @@ inline on the device row, and that `SIMPLEOTA_EVENT_UPDATE_FAILED` carries:
 |---|---|
 | `downgrade_refused` | The offered build is not above the running one (reported once per boot) |
 | `insecure_url` | The download URL is not `https://` |
-| `signature_invalid` | A signed offer failed Ed25519 verification, or a required signature is missing |
+| `signature_invalid` | A signed offer failed Ed25519 verification, or a required signature is missing. Also a strict signature that is required and missing, or one that does not verify, checked before the download |
 | `https_begin_failed` | The download connection could not be opened |
 | `http_status_<N>` | The download returned HTTP N, or a fourth redirect |
 | `redirect_not_https` | A download redirect led to a plain HTTP URL |
 | `redirect_malformed` | A download redirect had no usable `Location` |
 | `update_begin_failed` | The update slot could not be opened: no second OTA slot, or the image is larger than the slot |
+| `image_mismatch` | The download's first bytes are not a firmware image for this chip; nothing was written |
 | `update_write_failed` | A flash write failed during the download |
 | `stream_error` | The connection broke during the download |
 | `download_stalled` | The download stopped sending; reported one to two `CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` after its last byte |
@@ -187,8 +213,12 @@ download that broke are tried again after 30 s, 2 min and 10 min, then at
 offer's `size`, a bad checksum or signature, and a flash failure wait for the
 next regular check. Every wait of a minute or more is spread by up to about a
 tenth either way, so devices that
-power up together do not check in together from then on. In polling mode the
-application schedules its own calls.
+power up together do not check in together from then on. A check-in answered
+with 429 or 503 and a `Retry-After` in seconds can only lengthen the next
+wait: when the Retry-After, capped at a day, is longer than the wait above,
+the device waits that long plus up to a tenth, and a shorter one changes
+nothing. A trial keeps its quick checks so its confirm timeout does not wait
+for a busy server. In polling mode the application schedules its own calls.
 
 ## Rollback
 
@@ -381,10 +411,10 @@ simpleota_config_t cfg = {
 };
 ```
 
-**Set both.** Keys only bind together with `SIMPLEOTA_SECURITY_SIGNED`. With
-keys pinned and any other mode, an update the server marks unsigned is still
-installed on its checksum alone, and `simpleota_init()` logs a warning saying
-so.
+**Set both.** Keys only bind together with `SIMPLEOTA_SECURITY_SIGNED` (or
+`SIMPLEOTA_SECURITY_STRICT`, below). With keys pinned and any other mode, an
+update the server marks unsigned is still installed on its checksum alone,
+and `simpleota_init()` logs a warning saying so.
 
 Behavior matrix (the same in the Arduino library):
 
@@ -395,6 +425,10 @@ Behavior matrix (the same in the Arduino library):
 | key pinned (any mode) | signed offer without usable signature | rejected (fail closed) |
 | no key pinned | signed offer | applied with a prominent "unverified" warning (keeps basic -> signed migration flowing) |
 | any | unsigned offer, device not enforcing | normal checksum-verified update |
+| strict mode + key + `project_id` | strict signature and image signature both valid | strict signature checked before the download, image signature during it; flash only on pass |
+| strict mode + key + `project_id` | no strict signature, or one that does not verify | **rejected before the download**; `failed` / `signature_invalid` |
+| key + `project_id`, any other mode | offer with a strict signature | checked before the download; a wrong one is rejected (`signature_invalid`) |
+| key + `project_id`, any other mode | offer without a strict signature | handled as without `project_id` |
 
 An enforcing device (signed mode + pinned key) cannot be silently downgraded:
 stripping the signature fields from a response fails closed.
@@ -415,6 +449,60 @@ physical access can still reflash over serial. The two compose; if you enable
 Secure Boot v2, sign the final (Secure-Boot-signed) binary for SimpleOTA and
 note that a Secure Boot rejection surfaces as `update_end_failed`, distinct
 from `signature_invalid`.
+
+### Strict signing
+
+The image signature covers the firmware bytes only, and the server assigns
+the build number. So a server that was taken over could offer an old signed
+image under a higher build number, which the anti-rollback check would take,
+or another project's image when two projects share a key. Strict signing
+closes that: the SimpleOTA CLI makes a second signature with the same key
+once it knows the build number, over the project id, the key id, the build
+number and the image's SHA-256. The device writes the same text from what it
+holds itself and checks that signature before it downloads anything.
+
+```c
+simpleota_config_t cfg = {
+    .token = "...",
+    .security_mode = SIMPLEOTA_SECURITY_STRICT,
+    .project_id = "00000000-0000-4000-8000-000000000000",  // your project's UUID
+    .signing_keys = keys,
+    .num_signing_keys = 1,
+};
+```
+
+- `project_id` is the project's UUID, lowercase with hyphens, as the CLI's
+  key snippet prints it; not its slug, which can be renamed. It is not a
+  secret. `simpleota_init()` fails with `ESP_ERR_INVALID_ARG` for any other
+  non-empty value, and for `SIMPLEOTA_SECURITY_STRICT` without a
+  `project_id` or a signing key.
+- On check-ins a strict device reports `security_mode` `signed` and
+  `"require_manifest": true`. It refuses any update without a valid strict
+  signature, so use it with builds the CLI has made strict-ready.
+- **Moving a fleet to strict signing:** set `project_id` first and keep
+  `SIMPLEOTA_SECURITY_SIGNED`. Such a device checks a strict signature
+  whenever an offer carries one and refuses a wrong one, so the fleet proves
+  its strict signatures. That is a rehearsal, not the protection: in signed
+  mode a server can leave the strict signature out and the update is taken
+  on its image signature. Switch to `SIMPLEOTA_SECURITY_STRICT` in a later
+  release. Without `project_id`, strict signatures are not looked at.
+- [examples/signed](../examples/signed) has both under menuconfig, Example
+  Configuration: Security mode "Signed" or "Strict signing", and the project
+  id.
+
+The strict signature check adds about 1 KB of flash to every build that
+keeps signed updates in. In an update that checks one, a second verifier
+takes about 700 bytes of heap, freed before the download starts.
+
+### Without signed updates
+
+A device that will never take a signed update can leave the Ed25519 verifier
+out of its image with `CONFIG_SIMPLEOTA_DISABLE_SIGNED_UPDATES=y`.
+`simpleota_init()` then fails with `ESP_ERR_INVALID_ARG` when signing keys
+are pinned or `security_mode` is `SIMPLEOTA_SECURITY_SIGNED` or
+`SIMPLEOTA_SECURITY_STRICT`, and an update the server marks signed is handled
+as on a device with no key pinned: installed on its checksum, with a
+warning. TLS and the checksum are verified as always.
 
 ## TLS
 
@@ -470,7 +558,8 @@ mbedTLS call. Pick whichever fix suits your project:
 - [examples/basic](../examples/basic): managed updates with rollback.
 - [examples/polling](../examples/polling): the app runs the checks and
   confirms trials itself, and handles each `simpleota_result_t`.
-- [examples/signed](../examples/signed): on-device Ed25519 verification.
+- [examples/signed](../examples/signed): on-device Ed25519 verification,
+  with "Signed" or "Strict signing" chosen in menuconfig.
 
 All are complete projects (`idf.py menuconfig` for Wi-Fi + token, then
 `idf.py flash monitor`). They build against the in-repo component through a
@@ -486,10 +575,12 @@ rollback.
 
 The update logic is the shared core in `src/core`, copied from
 [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) at
-the tag or commit in `src/core/CORE_VERSION`. Its host tests cover signing, SHA-256,
-response parsing, the trial record, rollback, and a power cut at every storage
-write. CI checks that `src/core` matches it, and builds the examples
-across IDF v5.1 through latest on Xtensa and RISC-V targets.
+the tag or commit in `src/core/CORE_VERSION`. Its host tests cover signing,
+strict signatures, SHA-256, response parsing, the trial record, rollback, and
+a power cut at every storage write. CI checks that `src/core` matches it, and
+builds the examples across IDF v5.1 through latest on Xtensa and RISC-V
+targets, also with strict signing and with signed updates built out, which
+must drop the Ed25519 verifier from the image.
 
 ## Arduino and ESP-IDF
 
@@ -499,11 +590,32 @@ code that uses SimpleOTA works unchanged in a sketch. Two things differ:
 
 - Arduino-ESP32 has no Kconfig, so the build-time knobs above are `-D` flags
   there (`CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS` and so on, with the same
-  defaults), set in PlatformIO's `build_flags`.
+  defaults), set in PlatformIO's `build_flags`. Signed updates are built out
+  with `-DSIMPLEOTA_DISABLE_SIGNED_UPDATES` there.
 - Without `cert_pem`, Arduino-ESP32 2.0.4 and later verify TLS against the
   certificate bundle, as this component does. Arduino-ESP32 2.0.0 to 2.0.3
   do not link the bundle, so there TLS is verified against ISRG Root X1 and
   X2 and GTS Root R4 instead.
+
+## Upgrading from 1.0
+
+Code written for 1.0 builds unchanged and behaves as before: 1.2.0 only adds
+(`can_update`, `project_id`, `SIMPLEOTA_SECURITY_STRICT` and
+`CONFIG_SIMPLEOTA_DISABLE_SIGNED_UPDATES`), every new setting is off when
+left at zero, and nothing stored in NVS changes. `SIMPLEOTA_API_VERSION` is
+1.2. Two things a device does differently on its own:
+
+- A download whose first bytes are not a firmware image for this chip fails
+  with `image_mismatch` on its first chunk, before anything is written. A
+  download that is not a firmware image at all failed on its first chunk
+  before too, but as `update_write_failed`: if you filter on that reason, add
+  `image_mismatch`. An image built for another chip used to download in full
+  and fail with `update_end_failed`.
+- In managed mode a check-in answered with 429 or 503 and a `Retry-After`
+  longer than the wait the device would take anyway (the 30 s, 2 min and
+  10 min retries, or `check_interval_s`) lengthens that wait to the
+  Retry-After, a day at most, plus up to a tenth. A shorter one changes
+  nothing. A trial keeps its quick checks.
 
 ## Upgrading from 0.2
 

@@ -72,4 +72,16 @@ config SIMPLEOTA_DISABLE_TRIAL_WATCHDOG
         back. Enable this to leave the watchdog out. The confirm timer still
         runs, and a crash still rolls back.
 
+config SIMPLEOTA_DISABLE_SIGNED_UPDATES
+    bool "Build without signed updates"
+    default n
+    help
+        Leaves the Ed25519 verifier out of the image, for devices that will
+        never take a signed update. simpleota_init() then fails with
+        ESP_ERR_INVALID_ARG when signing keys are pinned or security_mode
+        is SIGNED or STRICT, and an update the server marks signed is
+        installed as on a device with no key pinned: on its SHA-256 alone,
+        with a warning. TLS verification and the SHA-256 check are
+        unchanged.
+
 endmenu

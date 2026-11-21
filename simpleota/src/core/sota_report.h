@@ -76,6 +76,23 @@ static inline uint32_t sota_retry_interval_s(uint32_t failures, uint32_t check_i
     return steps[failures - 1u] < check_interval_s ? steps[failures - 1u] : check_interval_s;
 }
 
+/** The longest a server's Retry-After is honoured: a day. */
+#define SOTA_RETRY_AFTER_MAX_S 86400u
+
+/**
+ * The wait once a 429 or 503 asked for retry_after_s seconds (0: it did
+ * not): never sooner than asked, and up to a tenth later, because every
+ * device was told the same number. A request shorter than wait_s changes
+ * nothing.
+ */
+static inline uint32_t sota_retry_after_wait_s(uint32_t wait_s, uint32_t retry_after_s,
+                                               uint32_t random)
+{
+    if (retry_after_s > SOTA_RETRY_AFTER_MAX_S) retry_after_s = SOTA_RETRY_AFTER_MAX_S;
+    if (retry_after_s <= wait_s) return wait_s;
+    return retry_after_s + (uint32_t)(((uint64_t)random * (retry_after_s / 10u + 1u)) >> 32);
+}
+
 /** Waits from this long on are spread, so devices that start together (a
  *  power cut ending, a batch off the line) do not check in together for
  *  ever after. Shorter waits stay exact: the connection, trial and report

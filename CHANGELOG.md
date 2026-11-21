@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0
+
+Moves to [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) 1.2.0 (tag `v1.2.0`, commit `1fff3e4`), which includes core 1.1.0. `SIMPLEOTA_API_VERSION` is 1.2. Additions only: an app written for 1.0.1 builds unchanged, every new setting is off when left at zero, and nothing stored in NVS changes. TLS trust is unchanged: without `cert_pem` the component verifies against the ESP-IDF certificate bundle.
+
+### Added
+
+- **Strict signing.** `SIMPLEOTA_SECURITY_STRICT` and `simpleota_config_t::project_id`. The image signature covers the firmware bytes only and the server assigns the build number, so a server that was taken over could offer an old signed image under a higher build number, or another project's image when projects share a key. The SimpleOTA CLI now makes a second, strict signature with the same key over the project id, key id, build number and image SHA-256, and the device checks it before it downloads anything. In strict mode an update without a strict signature that verifies is refused with `signature_invalid`. Strict mode needs a signing key and `project_id`, and `simpleota_init()` fails without either. On check-ins it reports `security_mode` `signed` and `"require_manifest": true`. See *Strict signing* in the README.
+- `project_id` with a pinned key in any other mode checks a strict signature whenever an offer carries one and refuses a wrong one, so a fleet can prove its strict signatures before it moves to strict mode. Outside strict mode a server can leave the strict signature out. `project_id` must be the project's UUID, lowercase with hyphens: `simpleota_init()` fails for any other non-empty value.
+- `simpleota_config_t::can_update`: in managed mode the application can put an offered update off, for example on low battery. Nothing is downloaded, and the next check, or `simpleota_check_now()`, asks again. See *Putting an update off* in the README.
+- `CONFIG_SIMPLEOTA_DISABLE_SIGNED_UPDATES` (off by default) builds the component without the Ed25519 verifier, for devices that never take a signed update. `simpleota_init()` then refuses signing keys, `SIMPLEOTA_SECURITY_SIGNED` and `SIMPLEOTA_SECURITY_STRICT`, and a signed offer is handled as on a device with no key pinned.
+- [examples/signed](examples/signed) has a Security mode choice in menuconfig, "Signed" (the default, as before) or "Strict signing", and a project id.
+
+### Changed
+
+- A download whose first bytes are not a firmware image for this chip fails with the new reason `image_mismatch` on its first chunk, before anything is written. Before, a download that was not a firmware image at all also failed on its first chunk, because `esp_ota_write()` refuses it, but was reported as `update_write_failed`: if you filter on that reason, add `image_mismatch`. An image built for another chip used to download in full and fail with `update_end_failed`.
+- In managed mode a check-in answered with 429 or 503 and a `Retry-After` in seconds can lengthen the wait before the next check: when the Retry-After, capped at a day, is longer than the wait the device would take anyway (the 30 s, 2 min and 10 min retries, or `check_interval_s`), it waits that long plus up to a tenth. A shorter Retry-After changes nothing. A trial keeps its quick checks.
+- The strict signature check adds about 1 KB of flash to every build that keeps signed updates in. In an update that checks one, a second verifier takes about 700 bytes of heap, freed before the download starts.
+
+### Fixed
+
+- Signing key ids of up to 64 characters, as the platform and the CLI allow, can be pinned and are read from offers. Before, a 64-character id failed `simpleota_init()`, and in an offer it was dropped. An offer whose key id is longer than 64 characters, or not a string, has no usable signature.
+
 ## 1.0.1
 
 Fixes from a security and robustness review, by moving to [SimpleOTAClient-core](https://github.com/wassie-dev/simpleOTAClient-core) 1.0.1 (tag `v1.0.1`, commit `5841c1c`). No API change, no Kconfig option changes, and nothing stored in NVS changes. TLS trust is unchanged: without `cert_pem` the component verifies against the ESP-IDF certificate bundle, as in 1.0.0. Core 1.0.1's new default trust is for the Arduino library only and is not built here.

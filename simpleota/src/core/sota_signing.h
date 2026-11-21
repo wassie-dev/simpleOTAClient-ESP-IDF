@@ -24,7 +24,19 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/**
+ * Signed updates can be left out of a build that will never take one, with
+ * -DSIMPLEOTA_DISABLE_SIGNED_UPDATES, which drops Ed25519 and SHA-512 from
+ * the image. Such a build pins no key (sota_engine_add_key() fails) and
+ * treats a signed offer as a device without a key does.
+ */
+#ifdef SIMPLEOTA_DISABLE_SIGNED_UPDATES
+#define SOTA_SIGNED_UPDATES 0
+#else
+/** 1 when the build can verify signed updates. */
+#define SOTA_SIGNED_UPDATES 1
 #include "monocypher-ed25519.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,6 +106,8 @@ bool sota_decode_signature_b64(const char *b64, uint8_t out[64]);
  */
 #define SOTA_VERIFIER_MAX_KEYS 2
 
+#if SOTA_SIGNED_UPDATES
+
 /** A streaming signature check against each candidate key at once. */
 typedef struct {
     crypto_check_ed25519_ctx ctx[SOTA_VERIFIER_MAX_KEYS]; /**< One check per key. */
@@ -117,6 +131,41 @@ void sota_verifier_update(sota_sig_verifier_t *v, const uint8_t *data, size_t le
 
 /** @return true if the signature verifies under any candidate key. */
 bool sota_verifier_final(sota_sig_verifier_t *v);
+
+#else /* !SOTA_SIGNED_UPDATES */
+
+/** Nothing to verify with: begin() fails, so no update is ever checked. */
+typedef struct {
+    uint8_t num_keys; /**< Always 0. */
+} sota_sig_verifier_t;
+
+/** Always false: this build cannot verify. */
+static inline bool sota_verifier_begin(sota_sig_verifier_t *v, const uint8_t sig[64],
+                                       const uint8_t keys[][32], uint8_t num_keys)
+{
+    (void)sig;
+    (void)keys;
+    (void)num_keys;
+    v->num_keys = 0;
+    return false;
+}
+
+/** Does nothing. */
+static inline void sota_verifier_update(sota_sig_verifier_t *v, const uint8_t *data, size_t len)
+{
+    (void)v;
+    (void)data;
+    (void)len;
+}
+
+/** Always false. */
+static inline bool sota_verifier_final(sota_sig_verifier_t *v)
+{
+    (void)v;
+    return false;
+}
+
+#endif /* SOTA_SIGNED_UPDATES */
 
 #ifdef __cplusplus
 }

@@ -90,6 +90,10 @@ bool sota_protocol_check_body(const sota_device_info_t *dev, const sota_identity
     put_opt_str(&w, "hardware_revision", dev->hardware_revision);
     put_opt_str(&w, "partition_profile", dev->partition_profile);
     put_opt_str(&w, "security_mode", dev->security_mode);
+    if (dev->require_manifest) {
+        put_key(&w, "require_manifest");
+        put(&w, "true");
+    }
     put_opt_str(&w, "channel", dev->channel);
     put_opt_str(&w, "version_label", version_label);
     put_opt_str(&w, "current_hash", live->hash);
@@ -145,6 +149,32 @@ static void read_signature(const char *resp, sota_offer_t *offer)
     offer->has_signature = algo_ok && sota_decode_signature_b64(sig_b64, offer->signature);
 }
 
+/* A key id that is not a string of at most SOTA_KEY_ID_MAX leaves both
+ * signatures unusable: never check them against a key id cut short. An
+ * empty one names no key, as when it is absent: the image signature is
+ * checked against every pinned key, and a manifest is refused
+ * (sota_manifest_feed()). */
+static void read_key_id(const char *resp, sota_offer_t *offer)
+{
+    if (sota_json_has_key(resp, "signing_key_id") &&
+        !sota_json_get_string(resp, "signing_key_id", offer->key_id, sizeof(offer->key_id))) {
+        offer->key_id[0] = '\0';
+        offer->has_signature = false;
+        offer->has_manifest = false;
+    }
+}
+
+/* A version this client does not know is a manifest it cannot check. */
+static void read_manifest(const char *resp, sota_offer_t *offer)
+{
+    char sig_b64[128];
+    uint32_t version = 1;
+    if (!sota_json_get_string(resp, "manifest_signature", sig_b64, sizeof(sig_b64))) return;
+    bool version_ok = !sota_json_has_key(resp, "manifest_version") ||
+                      (sota_json_get_u32(resp, "manifest_version", &version) && version == 1);
+    offer->has_manifest = version_ok && sota_decode_signature_b64(sig_b64, offer->manifest_sig);
+}
+
 sota_check_result_t sota_protocol_parse_check(const char *resp, sota_offer_t *offer)
 {
     char *url = offer->url;
@@ -167,9 +197,10 @@ sota_check_result_t sota_protocol_parse_check(const char *resp, sota_offer_t *of
     lowercase(offer->checksum);
     get_opt(resp, "deployment_id", offer->deployment, sizeof(offer->deployment));
     get_opt(resp, "version", offer->version, sizeof(offer->version));
-    get_opt(resp, "signing_key_id", offer->key_id, sizeof(offer->key_id));
     sota_json_get_u32(resp, "size", &offer->size);
     read_signature(resp, offer);
+    read_manifest(resp, offer);
+    read_key_id(resp, offer);
     return SOTA_CHECK_OFFER;
 }
 

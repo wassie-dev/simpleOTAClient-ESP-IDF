@@ -5,6 +5,7 @@
 #include "sota_image.h"
 
 #include "esp_ota_ops.h"
+#include "sdkconfig.h"
 
 static esp_ota_handle_t s_handle;
 
@@ -19,6 +20,16 @@ bool sota_image_begin(size_t expected, uint32_t *slot, uint32_t *running)
     *slot = next->address;
     *running = run->address;
     return true;
+}
+
+/* esp_image_header_t, by its documented layout, which no ESP-IDF version
+ * changes: the magic byte first, and the chip the image was built for in
+ * bytes 12 and 13. esp_ota_end() checks both too, after the whole download. */
+bool sota_image_accepts(const uint8_t *head, size_t len)
+{
+    if (len < 14) return true;
+    return head[0] == 0xe9u &&
+           (uint16_t)(head[12] | (uint16_t)head[13] << 8) == (uint16_t)CONFIG_IDF_FIRMWARE_CHIP_ID;
 }
 
 bool sota_image_write(const uint8_t *buf, size_t len)

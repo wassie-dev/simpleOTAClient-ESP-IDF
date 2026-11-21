@@ -15,4 +15,31 @@ config EXAMPLE_SIMPLEOTA_TOKEN
         Create a project at https://simpleota.com, then copy a project API
         token with the device scope (Project -> API tokens).
 
+choice EXAMPLE_SECURITY_MODE
+    prompt "Security mode"
+    default EXAMPLE_SECURITY_SIGNED
+    help
+        Signed: every update must carry a valid image signature from a
+        pinned key. Strict signing: it must also carry a strict signature,
+        which ties the image to this project and its build number. Strict
+        signing needs the project id below and builds the SimpleOTA CLI has
+        made strict-ready.
+
+config EXAMPLE_SECURITY_SIGNED
+    bool "Signed"
+
+config EXAMPLE_SECURITY_STRICT
+    bool "Strict signing"
+
+endchoice
+
+config EXAMPLE_SIMPLEOTA_PROJECT_ID
+    string "SimpleOTA project id"
+    default ""
+    help
+        The project's UUID, lowercase with hyphens, as the SimpleOTA CLI's
+        key snippet prints it. Strict signing needs it. With Signed, setting
+        it makes the device check a strict signature whenever an update
+        carries one. Empty: strict signatures are not checked.
+
 endmenu

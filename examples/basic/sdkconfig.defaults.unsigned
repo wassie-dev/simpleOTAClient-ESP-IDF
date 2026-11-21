@@ -1,0 +1,3 @@
+# Layered on sdkconfig.defaults by CI: build without signed updates, so the
+# Ed25519 verifier is left out of the image.
+CONFIG_SIMPLEOTA_DISABLE_SIGNED_UPDATES=y

@@ -8,6 +8,10 @@ endif()
 # The client is the shared core, vendored as plain files by its sync script:
 # src/core, and its public header in include.
 file(GLOB sota_core_srcs "${CMAKE_CURRENT_LIST_DIR}/src/core/*.c")
+# Without signed updates the core needs no Ed25519, so Monocypher is not built.
+if(CONFIG_SIMPLEOTA_DISABLE_SIGNED_UPDATES)
+    list(FILTER sota_core_srcs EXCLUDE REGEX "/monocypher[^/]*\\.c$")
+endif()
 
 idf_component_register(
     SRCS ${sota_core_srcs}
@@ -38,3 +42,9 @@ endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     SOTA_DL_CHUNK=${CONFIG_SIMPLEOTA_DOWNLOAD_CHUNK}u
     SOTA_LOG_LEVEL=${CONFIG_LOG_MAXIMUM_LEVEL})
+
+# Every source file of the core needs the flag, and all of them are in this
+# component, so a private definition reaches each one.
+if(CONFIG_SIMPLEOTA_DISABLE_SIGNED_UPDATES)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE SIMPLEOTA_DISABLE_SIGNED_UPDATES)
+endif()

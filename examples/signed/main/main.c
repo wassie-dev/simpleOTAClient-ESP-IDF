@@ -8,6 +8,13 @@
  * signature aborts the update (reported as failed / signature_invalid) and
  * the device stays on its current build.
  *
+ * With "Strict signing" in menuconfig (Example Configuration -> Security
+ * mode) and the project id set, every update must also carry a strict
+ * signature, made by the SimpleOTA CLI over the project id, key id, build
+ * number and image SHA-256. It is checked before anything is downloaded,
+ * so the server cannot pass an old signed image off as a newer build, or
+ * offer another project's image signed with a shared key.
+ *
  * Setup:
  *  1. Create a signing key in the SimpleOTA dashboard (project -> Signing
  *     keys) and paste the PUBLIC key PEM below.
@@ -15,7 +22,9 @@
  *     the dashboard's "Sign it for me in my browser" helper.
  *
  * The placeholder key below deliberately does NOT parse:
- * simpleota_init() fails closed rather than running unverified.
+ * simpleota_init() fails closed rather than running unverified. Strict
+ * signing without a project id, or a project id that is not the project's
+ * lowercase UUID, fails it too.
  */
 
 #include <inttypes.h>
@@ -36,6 +45,12 @@ static const char *SIGNING_PUBLIC_KEY_PEM =
     "-----BEGIN PUBLIC KEY-----\n"
     "PASTE_YOUR_PROJECT_PUBLIC_KEY_HERE_THIS_WILL_NOT_PARSE\n"
     "-----END PUBLIC KEY-----\n";
+
+#if CONFIG_EXAMPLE_SECURITY_STRICT
+#define EXAMPLE_SECURITY_MODE SIMPLEOTA_SECURITY_STRICT
+#else
+#define EXAMPLE_SECURITY_MODE SIMPLEOTA_SECURITY_SIGNED
+#endif
 
 static bool is_connected(void *ctx) {
     (void)ctx;
@@ -69,7 +84,8 @@ void app_main(void) {
     simpleota_config_t cfg = {
         .token = CONFIG_EXAMPLE_SIMPLEOTA_TOKEN,
         .board_id = "esp32-devkitc",
-        .security_mode = SIMPLEOTA_SECURITY_SIGNED,
+        .security_mode = EXAMPLE_SECURITY_MODE,
+        .project_id = CONFIG_EXAMPLE_SIMPLEOTA_PROJECT_ID,
         .signing_keys = keys,
         .num_signing_keys = 1,
         .check_interval_s = 300,
@@ -83,7 +99,8 @@ void app_main(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
                  "simpleota_init failed (%s). Did you paste your project's "
-                 "signing PUBLIC key? Halting.",
+                 "signing PUBLIC key, and for strict signing set the "
+                 "project id? Halting.",
                  esp_err_to_name(err));
         for (;;) {
             vTaskDelay(pdMS_TO_TICKS(10000));

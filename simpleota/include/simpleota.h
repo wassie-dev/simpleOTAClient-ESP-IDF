@@ -84,7 +84,7 @@ extern "C" {
  * @{
  */
 #define SIMPLEOTA_API_VERSION_MAJOR 1 /**< Breaking changes. */
-#define SIMPLEOTA_API_VERSION_MINOR 0 /**< Additions. */
+#define SIMPLEOTA_API_VERSION_MINOR 2 /**< Additions. */
 /** A version as one comparable number. */
 #define SIMPLEOTA_API_VERSION_NUM(major, minor) ((major) * 1000 + (minor))
 /** This header's version, as SIMPLEOTA_API_VERSION_NUM() gives it. */
@@ -102,6 +102,15 @@ typedef enum {
     SIMPLEOTA_SECURITY_SIGNED,   /**< Signed artifacts only, each verified against a
                                       pinned key before it can boot. Needs at least
                                       one signing key. */
+    /** SIGNED, and each update must also carry a strict signature: a second
+     *  signature, made by the SimpleOTA CLI with the same key, over the
+     *  project id, the signing key id, the build number and the image's
+     *  SHA-256. The server then cannot pass an old signed image off as a
+     *  newer build, or offer another project's image when projects share a
+     *  key. Needs a signing key, project_id, and builds the CLI has made
+     *  strict-ready.
+     *  Since API 1.2. */
+    SIMPLEOTA_SECURITY_STRICT,
 } simpleota_security_t;
 
 /** What simpleota_apply() did. The values are stable across releases. */
@@ -150,6 +159,8 @@ typedef enum {
  * - `redirect_not_https`, `redirect_malformed`: a download redirect led to
  *   plain HTTP, or had no usable Location.
  * - `update_begin_failed`: no second OTA slot, or the image is too big.
+ * - `image_mismatch`: the download's first bytes are not a firmware image
+ *   for this chip; nothing was written. Since API 1.1.
  * - `update_write_failed`: a flash write failed.
  * - `stream_error`, `download_stalled`, `short_read`: the download broke,
  *   stopped sending (reported one to two CONFIG_SIMPLEOTA_HTTP_TIMEOUT_MS
@@ -203,7 +214,8 @@ typedef struct {
                                         Left out, with a warning, when it is not one
                                         JSON object. */
     simpleota_security_t security_mode; /**< Default: SIMPLEOTA_SECURITY_NONE.
-                                             SIGNED needs a signing key. */
+                                             SIGNED and STRICT need a
+                                             signing key. */
     const char *version_label;     /**< Default: the label stored with the update that
                                         installed this image. */
     uint32_t image_build;          /**< This image's build number, reported when
@@ -217,7 +229,11 @@ typedef struct {
                                         or more by up to a tenth either way, so a
                                         fleet does not check in at once, and
                                         retries a check or download that failed on
-                                        the network after 30 s, 2 min and 10 min. */
+                                        the network after 30 s, 2 min and 10 min.
+                                        In managed mode a 429 or 503 with a
+                                        Retry-After in seconds is waited out
+                                        instead (a day at most). A trial ignores
+                                        it and keeps its quick checks. */
     uint32_t initial_delay_ms;     /**< Delay before the first check after start().
                                         Default: none. Not a wait for the IP; see
                                         is_connected. */
@@ -231,9 +247,15 @@ typedef struct {
 
     /** Pinned public keys for signed firmware, at most 2. Parsed at init,
      *  which fails on a PEM that does not parse rather than run unpinned.
-     *  They bind only with security_mode SIMPLEOTA_SECURITY_SIGNED: in any
-     *  other mode an update the server marks unsigned is still accepted on
-     *  its checksum, and init logs a warning. */
+     *  They bind only with security_mode SIMPLEOTA_SECURITY_SIGNED or
+     *  SIMPLEOTA_SECURITY_STRICT: in any other mode an update the
+     *  server marks unsigned is still accepted on its checksum, and init
+     *  logs a warning.
+     *
+     *  A device that will never take a signed update can leave the
+     *  verifier out of its image by building every source file of the
+     *  client with -DSIMPLEOTA_DISABLE_SIGNED_UPDATES. Init then refuses
+     *  signing keys, SIGNED and STRICT. */
     const simpleota_signing_key_t *signing_keys;
     uint8_t num_signing_keys;      /**< Entries in signing_keys. */
 
@@ -247,7 +269,8 @@ typedef struct {
      *  Keep it quick, and don't call the client from it except
      *  simpleota_reboot_for_update(). */
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
-    void *user_ctx;                /**< Passed to is_connected and event_cb. */
+    void *user_ctx;                /**< Passed to is_connected, event_cb and
+                                        can_update. */
 
     /** TLS trust, always verified. Default: the ESP-IDF certificate bundle,
      *  except on Arduino-ESP32 2.0.0 to 2.0.3, which do not link it: there,
@@ -260,6 +283,32 @@ typedef struct {
     const char *cert_pem;
     esp_err_t (*crt_bundle_attach)(void *conf); /**< Another bundle's attach function.
                                                      Default: the trust above. */
+
+    /** Managed mode: called on the managed task when an update is offered,
+     *  after SIMPLEOTA_EVENT_UPDATE_AVAILABLE and before the download.
+     *  Return false to put the update off, on low battery or in the middle
+     *  of something that must not be interrupted: nothing is downloaded,
+     *  and the next check asks again, which simpleota_check_now() brings
+     *  forward once the device is ready. Keep it quick, and don't call the
+     *  client from it. NULL: always update. Polling mode does not call it:
+     *  there the application decides by calling simpleota_apply().
+     *  Since API 1.1. */
+    bool (*can_update)(void *user_ctx);
+
+    /** The id of the SimpleOTA project this device belongs to: the
+     *  project's UUID, lowercase with hyphens, as the CLI's key snippet
+     *  prints it. Not the project's slug, which can be renamed. It is not
+     *  a secret. With it and a signing key, an update's strict signature
+     *  is checked whenever the offer carries one, and one made for another
+     *  project or another build number is refused (reason
+     *  signature_invalid) before the download. SIMPLEOTA_SECURITY_STRICT
+     *  needs it, and refuses an update without a strict signature too.
+     *  Only that mode protects against a server replaying an old build:
+     *  in any other, a server can leave the strict signature out and the
+     *  update is taken on its image signature alone. Default: strict
+     *  signatures are not checked. Init fails when it is non-empty and not a
+     *  UUID in that form. Since API 1.2. */
+    const char *project_id;
 } simpleota_config_t;
 
 /**
@@ -273,10 +322,13 @@ typedef struct {
  * @param config  The configuration; copied, so it need not outlive the call.
  * @retval ESP_OK                 Ready.
  * @retval ESP_ERR_INVALID_ARG    A missing token or one with control
- *                                characters, an unparseable signing key,
- *                                a security_mode out of range or SIGNED
- *                                without a key, or a base_url that is not
- *                                https://.
+ *                                characters, an unparseable signing key, a
+ *                                security_mode out of range, a signed mode
+ *                                without a key, STRICT without a project_id,
+ *                                a project_id that is not a lowercase
+ *                                hyphenated UUID, a base_url that is not
+ *                                https://, or a signing key or signed mode in
+ *                                a build without signed updates.
  * @retval ESP_ERR_INVALID_STATE  Already initialized, or neither the
  *                                certificate bundle nor a cert_pem is
  *                                available.

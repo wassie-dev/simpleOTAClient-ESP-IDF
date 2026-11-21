@@ -71,6 +71,7 @@ enum {
     STR_LABELS_JSON,
     STR_VERSION_LABEL,
     STR_CERT_PEM,
+    STR_PROJECT_ID,
     STR_COUNT,
 };
 
@@ -85,6 +86,7 @@ typedef struct {
     bool initialized;
     bool manual_confirm;
     void (*event_cb)(const simpleota_event_t *event, void *user_ctx);
+    bool (*can_update)(void *user_ctx);
     void *user_ctx;
 } simpleota_t;
 
@@ -111,6 +113,12 @@ void sota_app_event(void *user, const sota_event_t *ev)
         .bytes_total = ev->total,
     };
     c->event_cb(&out, c->user_ctx);
+}
+
+bool sota_app_can_update(void *user)
+{
+    simpleota_t *c = (simpleota_t *)user;
+    return !c->can_update || c->can_update(c->user_ctx);
 }
 
 void sota_app_wake(void *user)
@@ -149,6 +157,7 @@ static bool copy_strings(const simpleota_config_t *cfg)
         [STR_LABELS_JSON] = cfg->labels_json,
         [STR_VERSION_LABEL] = cfg->version_label,
         [STR_CERT_PEM] = cfg->cert_pem,
+        [STR_PROJECT_ID] = cfg->project_id,
     };
     for (int i = 0; i < STR_COUNT; ++i) {
         if (src[i] && !(s.str[i] = strdup(src[i]))) return false;
@@ -161,20 +170,59 @@ static const char *security_mode_name(simpleota_security_t mode)
 {
     switch (mode) {
     case SIMPLEOTA_SECURITY_BASIC: return "basic";
-    case SIMPLEOTA_SECURITY_SIGNED: return "signed";
+    case SIMPLEOTA_SECURITY_SIGNED:
+    case SIMPLEOTA_SECURITY_STRICT: return "signed";
     default: return NULL;
     }
 }
 
+/* Modes in which the pinned keys bind: an unsigned update is refused. */
+static bool enforces_signatures(simpleota_security_t mode)
+{
+    return mode == SIMPLEOTA_SECURITY_SIGNED || mode == SIMPLEOTA_SECURITY_STRICT;
+}
+
+/* The form the platform and the CLI sign: a UUID, lowercase with hyphens.
+ * Any other project id never verifies, so every strict signature fails. */
+#define PROJECT_UUID_LEN 36 /* 8-4-4-4-12 hex digits and four hyphens */
+#define UUID_HYPHEN_AT(i) ((i) == 8 || (i) == 13 || (i) == 18 || (i) == 23)
+
+static bool is_project_uuid(const char *id)
+{
+    for (int i = 0; i < PROJECT_UUID_LEN; ++i) {
+        char c = id[i];
+        bool ok = UUID_HYPHEN_AT(i) ? c == '-' : (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        if (!ok) return false;
+    }
+    return id[PROJECT_UUID_LEN] == '\0';
+}
+
 static esp_err_t init_engine(const simpleota_config_t *config)
 {
-    if ((unsigned)config->security_mode > SIMPLEOTA_SECURITY_SIGNED) {
+    if ((unsigned)config->security_mode > SIMPLEOTA_SECURITY_STRICT) {
         SOTA_LOGE("security_mode %d is not a simpleota_security_t", (int)config->security_mode);
         return ESP_ERR_INVALID_ARG;
     }
-    /* Reporting signed without a key would take signed builds unverified. */
-    if (config->security_mode == SIMPLEOTA_SECURITY_SIGNED && !config->num_signing_keys) {
-        SOTA_LOGE("security_mode SIGNED needs a signing key");
+    bool enforcing = enforces_signatures(config->security_mode);
+    if (!SOTA_SIGNED_UPDATES && (config->num_signing_keys || enforcing)) {
+        SOTA_LOGE("this build leaves signed updates out "
+                  "(SIMPLEOTA_DISABLE_SIGNED_UPDATES): no signing keys, no SIGNED or STRICT mode");
+        return ESP_ERR_INVALID_ARG;
+    }
+    /* Reporting signed without a key would take signed artifacts unverified. */
+    if (enforcing && !config->num_signing_keys) {
+        SOTA_LOGE("security_mode SIGNED and STRICT need a signing key");
+        return ESP_ERR_INVALID_ARG;
+    }
+    /* Without its own project id the device would have to take the
+     * server's, and a key shared between projects would bind nothing. */
+    bool strict = config->security_mode == SIMPLEOTA_SECURITY_STRICT;
+    if (strict && !(config->project_id && config->project_id[0])) {
+        SOTA_LOGE("security_mode STRICT needs project_id");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (config->project_id && config->project_id[0] && !is_project_uuid(config->project_id)) {
+        SOTA_LOGE("project_id must be the project's UUID, lowercase with hyphens");
         return ESP_ERR_INVALID_ARG;
     }
     sota_url_status_t url = SOTA_URL_OK;
@@ -198,9 +246,11 @@ static esp_err_t init_engine(const simpleota_config_t *config)
                 .channel = s.str[STR_CHANNEL],
                 .security_mode = security_mode_name(config->security_mode),
                 .labels_json = s.str[STR_LABELS_JSON],
+                .require_manifest = strict,
                 .nvs_schema_version = config->nvs_schema_version ? config->nvs_schema_version : 1,
             },
         .version_label = s.str[STR_VERSION_LABEL],
+        .project_id = s.str[STR_PROJECT_ID],
         .image_build = config->image_build,
         .check_interval_s = config->check_interval_s,
         .confirm_timeout_s = config->confirm_timeout_s,
@@ -215,14 +265,15 @@ static esp_err_t init_engine(const simpleota_config_t *config)
     for (uint8_t i = 0; i < config->num_signing_keys; ++i) {
         const simpleota_signing_key_t *k = &config->signing_keys[i];
         if (!k->pem || !sota_engine_add_key(&s.engine, k->key_id, k->pem)) {
-            SOTA_LOGE("signing key %u: invalid Ed25519 public key PEM", i);
+            SOTA_LOGE("signing key %u: invalid PEM, or key id over %u characters", i,
+                      (unsigned)SOTA_KEY_ID_MAX);
             return ESP_ERR_INVALID_ARG;
         }
     }
-    /* The keys only bind in SIGNED mode: in any other, the server's word
-     * that an artifact is unsigned is taken (sota_signed_gate()). */
-    if (config->num_signing_keys && config->security_mode != SIMPLEOTA_SECURITY_SIGNED) {
-        SOTA_LOGW("signing keys are pinned but security_mode is not SIGNED: "
+    /* The keys only bind in the signed modes: in any other, the server's
+     * word that an artifact is unsigned is taken (sota_signed_gate()). */
+    if (config->num_signing_keys && !enforcing) {
+        SOTA_LOGW("signing keys are pinned but security_mode is not SIGNED or STRICT: "
                   "unsigned updates are still accepted");
     }
     return ESP_OK;
@@ -263,6 +314,7 @@ esp_err_t simpleota_init(const simpleota_config_t *config)
     s.runner.priority = CONFIG_SIMPLEOTA_TASK_PRIORITY;
     s.manual_confirm = config->manual_confirm;
     s.event_cb = config->event_cb;
+    s.can_update = config->can_update;
     s.user_ctx = config->user_ctx;
     s.polled = xSemaphoreCreateBinaryStatic(&s.polled_buf);
     s.initialized = true;

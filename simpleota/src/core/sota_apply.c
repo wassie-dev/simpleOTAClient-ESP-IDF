@@ -10,6 +10,7 @@
 #include "sota_boot.h"
 #include "sota_engine_priv.h"
 #include "sota_image.h"
+#include "sota_manifest.h"
 #include "sota_net.h"
 #include "sota_sha256.h"
 #include "sota_sys.h"
@@ -54,19 +55,42 @@ static sota_apply_result_t give_up(sota_engine_t *e, job_t *job, const char *rea
     return result;
 }
 
-/* The key the offer names, when it is pinned; otherwise every pinned key,
- * for rotation windows. */
-static bool start_verifier(sota_engine_t *e, job_t *job)
+/* A verifier for sig, on the heap: against the key the offer names, when
+ * it is pinned; otherwise (none named, an empty one included) against
+ * every pinned key, for rotation windows.
+ * NULL when there is no memory or no key. */
+static sota_sig_verifier_t *start_verifier(const sota_engine_t *e, const uint8_t sig[64])
 {
-    job->verifier = (sota_sig_verifier_t *)malloc(sizeof(*job->verifier));
-    if (!job->verifier) return false;
+    sota_sig_verifier_t *v = (sota_sig_verifier_t *)malloc(sizeof(*v));
+    if (!v) return NULL;
     const uint8_t(*keys)[32] = (const uint8_t(*)[32])e->keys;
+    uint8_t count = e->num_keys;
     for (uint8_t i = 0; i < e->num_keys && e->offer.key_id[0]; ++i) {
         if (strcmp(e->key_ids[i], e->offer.key_id) == 0) {
-            return sota_verifier_begin(job->verifier, e->offer.signature, keys + i, 1);
+            keys += i;
+            count = 1;
+            break;
         }
     }
-    return sota_verifier_begin(job->verifier, e->offer.signature, keys, e->num_keys);
+    if (!sota_verifier_begin(v, sig, keys, count)) {
+        free(v);
+        return NULL;
+    }
+    return v;
+}
+
+/* The offer's manifest signature covers this device's project and the
+ * offer's key id, build number and checksum (sota_manifest.h). */
+static bool manifest_verifies(const sota_engine_t *e)
+{
+    sota_sig_verifier_t *v = start_verifier(e, e->offer.manifest_sig);
+    if (!v) return false;
+    bool fed = sota_manifest_feed(v, e->cfg.project_id, e->offer.key_id, e->offer.build,
+                                  e->offer.checksum);
+    /* Always ended, which is what releases a verifier's hashes. */
+    bool ok = sota_verifier_final(v) && fed;
+    free(v);
+    return ok;
 }
 
 static void to_hex(const uint8_t *in, size_t n, char *out)
@@ -114,6 +138,10 @@ static const char *download(sota_engine_t *e, job_t *job, size_t expected,
         if (expected && (size_t)r > expected - total) {
             *net = false;
             return "short_read";
+        }
+        if (total == 0 && !sota_image_accepts(job->chunk, (size_t)r)) {
+            *net = false;
+            return "image_mismatch";
         }
         if (!sota_image_write(job->chunk, (size_t)r)) {
             *net = false;
@@ -231,6 +259,26 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
         return give_up(e, &job, "insecure_url", SOTA_APPLY_FLASH_FAIL);
     }
 
+    /* The build number just compared is the server's word until the
+     * manifest proves it, so that comes before anything is downloaded. */
+    bool has_project = e->cfg.project_id && e->cfg.project_id[0];
+    sota_manifest_gate_t manifest = sota_manifest_gate(e->cfg.device.require_manifest, has_project,
+                                                       e->num_keys, e->offer.has_manifest);
+    if (manifest == SOTA_MANIFEST_FAIL_CLOSED) {
+        if (!has_project) {
+            SOTA_LOGE("a strict signature is required, but no project id is configured");
+        } else if (!e->num_keys) {
+            SOTA_LOGE("a strict signature is required, but no key is pinned");
+        } else {
+            SOTA_LOGE("the offer has no strict signature");
+        }
+        return give_up(e, &job, "signature_invalid", SOTA_APPLY_SIGNATURE_FAIL);
+    }
+    if (manifest == SOTA_MANIFEST_VERIFY && !manifest_verifies(e)) {
+        SOTA_LOGE("the offer's strict signature does not verify");
+        return give_up(e, &job, "signature_invalid", SOTA_APPLY_SIGNATURE_FAIL);
+    }
+
     const char *mode = e->cfg.device.security_mode;
     switch (sota_signed_gate(mode && strcmp(mode, "signed") == 0, e->num_keys,
                              e->offer.signed_offer, e->offer.has_signature)) {
@@ -240,7 +288,8 @@ sota_apply_result_t sota_engine_apply(sota_engine_t *e)
         SOTA_LOGW("signed update applied WITHOUT verification: no key is pinned");
         break;
     case SOTA_GATE_VERIFY:
-        if (!start_verifier(e, &job)) {
+        job.verifier = start_verifier(e, e->offer.signature);
+        if (!job.verifier) {
             return give_up(e, &job, "signature_invalid", SOTA_APPLY_SIGNATURE_FAIL);
         }
         break;
